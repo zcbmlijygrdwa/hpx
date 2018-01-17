@@ -497,12 +497,14 @@ namespace hpx { namespace this_thread
             // only if our current scheduler is the same, we should yield the id
             if (nextid && nextid->get_scheduler_base() != id->get_scheduler_base())
             {
-                nextid->get_scheduler_base()->schedule_thread(nextid, std::size_t(-1));
-                nextid = nullptr;
+                nextid->get_scheduler_base()->schedule_thread(
+                    nextid.get(), std::size_t(-1));
+                statex = self.yield(threads::thread_result_type(state, nullptr));
             }
-
-            // suspend the HPX-thread
-            statex = self.yield(threads::thread_result_type(state, nextid));
+            else
+            {
+                statex = self.yield(threads::thread_result_type(state, nextid));
+            }
         }
 
         // handle interruption, if needed
@@ -562,13 +564,16 @@ namespace hpx { namespace this_thread
             // only if our current scheduler is the same, we should yield the id
             if (nextid && nextid->get_scheduler_base() != id->get_scheduler_base())
             {
-                nextid->get_scheduler_base()->schedule_thread(nextid, std::size_t(-1));
-                nextid = nullptr;
+                nextid->get_scheduler_base()->schedule_thread(
+                    nextid.get(), std::size_t(-1));
+                statex = self.yield(
+                    threads::thread_result_type(threads::suspended, nullptr));
             }
-
-            // suspend the HPX-thread
-            statex = self.yield(
-                threads::thread_result_type(threads::suspended, nextid));
+            else
+            {
+                statex = self.yield(
+                    threads::thread_result_type(threads::suspended, nextid));
+            }
 
             if (statex != threads::wait_timeout)
             {
