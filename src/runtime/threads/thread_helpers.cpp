@@ -469,12 +469,12 @@ namespace hpx { namespace this_thread
     /// \a yield_aborted exception.
     threads::thread_state_ex_enum suspend(
         threads::thread_state_enum state,
-        threads::thread_id_type const& nextid,
+        threads::thread_id_type nextid,
         util::thread_description const& description, error_code& ec)
     {
         // let the thread manager do other things while waiting
         threads::thread_self& self = threads::get_self();
-        threads::thread_id_type id = threads::get_self_id();
+        threads::thread_id_type id = self.get_thread_id();
 
         // handle interruption, if needed
         threads::interruption_point(id, ec);
@@ -493,6 +493,13 @@ namespace hpx { namespace this_thread
 #ifdef HPX_HAVE_THREAD_BACKTRACE_ON_SUSPENSION
             detail::reset_backtrace bt(id, ec);
 #endif
+            // We might need to dispatch 'nextid' to it's correct scheduler
+            // only if our current scheduler is the same, we should yield the id
+            if (nextid && nextid->get_scheduler_base() != id->get_scheduler_base())
+            {
+                nextid->get_scheduler_base()->schedule_thread(nextid, std::size_t(-1));
+                nextid = nullptr;
+            }
 
             // suspend the HPX-thread
             statex = self.yield(threads::thread_result_type(state, nextid));
@@ -521,12 +528,12 @@ namespace hpx { namespace this_thread
 
     threads::thread_state_ex_enum suspend(
         util::steady_time_point const& abs_time,
-        threads::thread_id_type const& nextid,
+        threads::thread_id_type nextid,
         util::thread_description const& description, error_code& ec)
     {
         // schedule a thread waking us up at_time
         threads::thread_self& self = threads::get_self();
-        threads::thread_id_type id = threads::get_self_id();
+        threads::thread_id_type id = self.get_thread_id();
 
         // handle interruption, if needed
         threads::interruption_point(id, ec);
@@ -550,6 +557,14 @@ namespace hpx { namespace this_thread
                 abs_time, threads::pending, threads::wait_timeout,
                 threads::thread_priority_boost, ec);
             if (ec) return threads::wait_unknown;
+
+            // We might need to dispatch 'nextid' to it's correct scheduler
+            // only if our current scheduler is the same, we should yield the id
+            if (nextid && nextid->get_scheduler_base() != id->get_scheduler_base())
+            {
+                nextid->get_scheduler_base()->schedule_thread(nextid, std::size_t(-1));
+                nextid = nullptr;
+            }
 
             // suspend the HPX-thread
             statex = self.yield(

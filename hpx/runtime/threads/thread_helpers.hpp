@@ -482,7 +482,7 @@ namespace hpx { namespace this_thread
     ///         \a hpx#invalid_status.
     ///
     HPX_API_EXPORT threads::thread_state_ex_enum suspend(
-        threads::thread_state_enum state, threads::thread_id_type const& id,
+        threads::thread_state_enum state, threads::thread_id_type id,
         util::thread_description const& description =
             util::thread_description("this_thread::suspend"),
         error_code& ec = throws);
@@ -531,7 +531,7 @@ namespace hpx { namespace this_thread
     ///
     HPX_API_EXPORT threads::thread_state_ex_enum suspend(
         util::steady_time_point const& abs_time,
-        threads::thread_id_type const& id,
+        threads::thread_id_type id,
         util::thread_description const& description =
             util::thread_description("this_thread::suspend"),
         error_code& ec = throws);
