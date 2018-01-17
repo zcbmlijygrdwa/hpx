@@ -344,7 +344,7 @@ namespace hpx { namespace detail
         std::uint32_t node = get_locality_id(ec);
 
         std::size_t shepherd = std::size_t(-1);
-        threads::thread_id_type thread_id;
+        threads::thread_id_type thread_id = nullptr;
         util::thread_description thread_name;
 
         threads::thread_self* self = threads::get_self_ptr();
@@ -362,7 +362,7 @@ namespace hpx { namespace detail
 
         return construct_exception(e, func, file, line, back_trace, node,
             hostname, pid, shepherd,
-            reinterpret_cast<std::size_t>(thread_id.get()),
+            reinterpret_cast<std::size_t>(thread_id.thrd_),
             util::as_string(thread_name), env, config,
             state_name, auxinfo);
     }

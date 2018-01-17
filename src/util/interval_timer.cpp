@@ -235,7 +235,7 @@ namespace hpx { namespace util { namespace detail
         error_code ec;
 
         // create a new suspended thread
-        threads::thread_id_type id;
+        threads::thread_id_type id = nullptr;
         {
             // FIXME: registering threads might lead to thread suspension since
             // the allocators use hpx::lcos::local::spinlock. Unlocking the

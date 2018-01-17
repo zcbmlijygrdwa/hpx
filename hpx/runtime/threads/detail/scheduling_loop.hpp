@@ -37,7 +37,7 @@ namespace hpx { namespace threads { namespace detail
         thread_data* thrd, thread_state_enum state, char const* info)
     {
         LTM_(debug) << "tfunc(" << num_thread << "): " //-V128
-            << "thread(" << thrd->get_thread_id().get() << "), "
+            << "thread(" << thrd->get_thread_id() << "), "
             << "description(" << thrd->get_description() << "), "
             << "new state(" << get_thread_state_name(state) << "), "
             << info;
@@ -47,7 +47,7 @@ namespace hpx { namespace threads { namespace detail
     {
         // log this in any case
         LTM_(warning) << "tfunc(" << num_thread << "): " //-V128
-            << "thread(" << thrd->get_thread_id().get() << "), "
+            << "thread(" << thrd->get_thread_id() << "), "
             << "description(" << thrd->get_description() << "), "
             << "new state(" << get_thread_state_name(state) << "), "
             << info;
@@ -56,7 +56,7 @@ namespace hpx { namespace threads { namespace detail
         thread_data* thrd, thread_state_enum state)
     {
         LTM_(debug) << "tfunc(" << num_thread << "): " //-V128
-                    << "thread(" << thrd->get_thread_id().get() << "), "
+                    << "thread(" << thrd->get_thread_id() << "), "
                     << "description(" << thrd->get_description() << "), "
                     << "old state(" << get_thread_state_name(state) << ")";
     }
@@ -118,7 +118,7 @@ namespace hpx { namespace threads { namespace detail
         thread_data* get_next_thread() const
         {
             // we know that the thread-id is just the pointer to the thread_data
-            return reinterpret_cast<thread_data*>(next_thread_id_.get());
+            return next_thread_id_;
         }
 
     private:
@@ -292,7 +292,7 @@ namespace hpx { namespace threads { namespace detail
         scheduling_callbacks& callbacks, std::shared_ptr<bool>& background_running,
         std::size_t num_thread, std::int64_t& idle_loop_count)
     {
-        thread_id_type background_thread;
+        thread_id_type background_thread = nullptr;
         background_running.reset(new bool(true));
         thread_init_data background_init(
             [&, background_running](thread_state_ex_enum) -> thread_result_type
@@ -350,7 +350,7 @@ namespace hpx { namespace threads { namespace detail
                 {
                     // tries to set state to active (only if state is still
                     // the same as 'state')
-                    detail::switch_status thrd_stat (background_thread.get(), state);
+                    detail::switch_status thrd_stat (background_thread, state);
                     if (HPX_LIKELY(thrd_stat.is_valid() &&
                             thrd_stat.get_previous() == pending))
                     {
@@ -378,8 +378,8 @@ namespace hpx { namespace threads { namespace detail
 #else
                         thrd_stat = (*background_thread)();
 #endif
-                        thread_data *next = thrd_stat.get_next_thread();
-                        if (next != nullptr && next != background_thread.get())
+                        thread_id_type next = thrd_stat.get_next_thread();
+                        if (next != nullptr && next != background_thread)
                         {
                             if (next_thrd == nullptr)
                             {
@@ -405,8 +405,8 @@ namespace hpx { namespace threads { namespace detail
                         scheduler.SchedulingPolicy::
                             decrement_background_thread_count();
                         scheduler.SchedulingPolicy::destroy_thread(
-                            background_thread.get(), busy_count);
-                        background_thread.reset();
+                            background_thread, busy_count);
+                        background_thread = nullptr;
                     }
                     else if(suspended == state_val)
                     {
@@ -428,11 +428,13 @@ namespace hpx { namespace threads { namespace detail
     {
         std::atomic<hpx::state>& this_state = scheduler.get_state(num_thread);
 
+#if HPX_HAVE_ITTNOTIFY != 0 && !defined(HPX_HAVE_APEX)
         util::itt::stack_context ctx;        // helper for itt support
         util::itt::domain domain = hpx::get_thread_itt_domain();
         util::itt::id threadid(domain, &scheduler);
         util::itt::string_handle task_id("task_id");
         util::itt::string_handle task_phase("task_phase");
+#endif
 
 //         util::itt::frame_context fctx(domain);
 
@@ -446,8 +448,6 @@ namespace hpx { namespace threads { namespace detail
 
         // spin for some time after queues have become empty
         bool may_exit = false;
-        thread_data* thrd = nullptr;
-        thread_data* next_thrd = nullptr;
 
         std::shared_ptr<bool> background_running = nullptr;
         thread_id_type background_thread = nullptr;
@@ -460,9 +460,10 @@ namespace hpx { namespace threads { namespace detail
                 background_running, num_thread, idle_loop_count);
         }
 
+        thread_data* next_thrd = nullptr;
         while (true) {
+            thread_data* thrd = next_thrd;
             // Get the next HPX thread from the queue
-            thrd = next_thrd;
             bool running = this_state.load(
                 std::memory_order_relaxed) < state_pre_sleep;
 
@@ -471,6 +472,7 @@ namespace hpx { namespace threads { namespace detail
                         num_thread, running, idle_loop_count, thrd)))
             {
                 tfunc_time_wrapper tfunc_time_collector(idle_rate);
+                HPX_ASSERT(thrd->get_scheduler_base() == &scheduler);
 
                 idle_loop_count = 0;
                 ++busy_loop_count;
@@ -513,6 +515,7 @@ namespace hpx { namespace threads { namespace detail
                                 // Record time elapsed in thread changing state
                                 // and add to aggregate execution time.
                                 exec_time_wrapper exec_time_collector(idle_rate);
+
 
 #if defined(HPX_HAVE_APEX)
                                 // get the APEX data pointer, in case we are resuming the
@@ -635,7 +638,7 @@ namespace hpx { namespace threads { namespace detail
                 }
                 else if (HPX_UNLIKELY(active == state_val)) {
                     LTM_(warning) << "tfunc(" << num_thread << "): " //-V128
-                        "thread(" << thrd->get_thread_id().get() << "), "
+                        "thread(" << thrd->get_thread_id() << "), "
                         "description(" << thrd->get_description() << "), "
                         "rescheduling";
 
@@ -689,15 +692,15 @@ namespace hpx { namespace threads { namespace detail
                             if (!(scheduler.get_scheduler_mode() & policies::delay_exit))
                             {
                                 // If this is an inner scheduler, try to exit immediately
-                                if (background_thread.get() != nullptr)
+                                if (background_thread != nullptr)
                                 {
                                     HPX_ASSERT(background_running);
                                     *background_running = false;
                                     scheduler.SchedulingPolicy::
                                         decrement_background_thread_count();
                                     scheduler.SchedulingPolicy::schedule_thread(
-                                        background_thread.get(), num_thread);
-                                    background_thread.reset();
+                                        background_thread, num_thread);
+                                    background_thread = nullptr;
                                     background_running.reset();
                                 }
                                 else
@@ -795,8 +798,8 @@ namespace hpx { namespace threads { namespace detail
                         scheduler.SchedulingPolicy::
                             decrement_background_thread_count();
                         scheduler.SchedulingPolicy::schedule_thread(
-                            background_thread.get(), num_thread);
-                        background_thread.reset();
+                            background_thread, num_thread);
+                        background_thread = nullptr;
                         background_running.reset();
                     }
                     else

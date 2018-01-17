@@ -40,10 +40,11 @@
 #include <hpx/runtime/threads/coroutines/detail/context_base.hpp>
 #include <hpx/runtime/threads/coroutines/detail/coroutine_accessor.hpp>
 #include <hpx/runtime/threads/thread_enums.hpp>
+#include <hpx/runtime/threads/thread_id_type.hpp>
 #include <hpx/util/assert.hpp>
 #include <hpx/util/unique_function.hpp>
 
-#include <boost/intrusive_ptr.hpp>
+#include <boost/smart_ptr/intrusive_ptr.hpp>
 
 #include <cstddef>
 #include <utility>
@@ -61,8 +62,7 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
 
     public:
         typedef context_base super_type;
-        typedef context_base::thread_id_repr_type thread_id_repr_type;
-        typedef boost::intrusive_ptr<threads::thread_data> thread_id_type;
+        typedef context_base::thread_id_type thread_id_type;
 
         typedef std::pair<thread_state_enum, thread_id_type> result_type;
         typedef thread_state_ex_enum arg_type;
@@ -71,7 +71,7 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
 
         typedef boost::intrusive_ptr<coroutine_impl> pointer;
 
-        coroutine_impl(functor_type&& f, thread_id_repr_type id,
+        coroutine_impl(functor_type&& f, thread_id_type id,
             std::ptrdiff_t stack_size)
           : context_base(*this, stack_size, id)
           , m_result_last(std::make_pair(thread_state_enum::unknown, nullptr))
@@ -88,14 +88,14 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
 #endif
 
         static inline coroutine_impl* create(
-            functor_type&& f, thread_id_repr_type id = nullptr,
+            functor_type&& f, thread_id_type id = nullptr,
             std::ptrdiff_t stack_size = default_stack_size)
         {
             coroutine_impl* p = allocate(id, stack_size);
 
             if (!p)
             {
-                std::size_t const heap_num = std::size_t(id) / 32; //-V112
+                std::size_t const heap_num = std::size_t(id.thrd_) / 32; //-V112
 
                 // allocate a new coroutine object, if non is available (or all
                 // heaps are locked)
@@ -110,7 +110,7 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
         }
 
         static inline void rebind(
-            coroutine_impl* p, functor_type&& f, thread_id_repr_type id = nullptr)
+            coroutine_impl* p, functor_type&& f, thread_id_type id = nullptr)
         {
             p->rebind(std::move(f), id);
         }
@@ -167,7 +167,7 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
             this->super_type::reset();
         }
 
-        void rebind(functor_type && f, thread_id_repr_type id)
+        void rebind(functor_type && f, thread_id_type id)
         {
             this->rebind_stack();     // count how often a coroutines object was reused
             m_fun = std::move(f);
@@ -176,7 +176,7 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
 
     private:
         static HPX_EXPORT coroutine_impl* allocate(
-            thread_id_repr_type id, std::ptrdiff_t stacksize);
+            thread_id_type id, std::ptrdiff_t stacksize);
 
         static HPX_EXPORT void deallocate(coroutine_impl* wrapper);
 

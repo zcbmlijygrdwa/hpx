@@ -203,7 +203,7 @@ int hpx_main(variables_map& vm)
             (hpx::util::bind(&test_dummy_thread, futures));
 
         tree_boot(futures, grain_size, prefix,
-            reinterpret_cast<std::uint64_t>(thread.get()));
+            reinterpret_cast<std::uint64_t>(thread.thrd_));
 
         set_thread_state(thread, pending, wait_terminate);
     }
