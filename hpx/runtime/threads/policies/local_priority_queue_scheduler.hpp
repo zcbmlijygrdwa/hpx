@@ -1,4 +1,5 @@
 //  Copyright (c) 2007-2017 Hartmut Kaiser
+//  Copyright (c) 2018      Thomas Heller
 //  Copyright (c) 2011      Bryce Lelbach
 //
 //  Distributed under the Boost Software License, Version 1.0. (See accompanying
@@ -431,16 +432,16 @@ namespace hpx { namespace threads { namespace policies
         {
             bool empty = true;
 
-            for (std::size_t i = 0; i != queues_.size(); ++i)
-                empty = queues_[i]->cleanup_terminated(delete_all) && empty;
-            if (!delete_all)
-                return empty;
-
-            for (std::size_t i = 0; i != high_priority_queues_.size(); ++i)
-                empty = high_priority_queues_[i]->
-                    cleanup_terminated(delete_all) && empty;
-
-            empty = low_priority_queue_.cleanup_terminated(delete_all) && empty;
+//             for (std::size_t i = 0; i != queues_.size(); ++i)
+//                 empty = queues_[i]->cleanup_terminated(delete_all) && empty;
+//             if (!delete_all)
+//                 return empty;
+//
+//             for (std::size_t i = 0; i != high_priority_queues_.size(); ++i)
+//                 empty = high_priority_queues_[i]->
+//                     cleanup_terminated(delete_all) && empty;
+//
+//             empty = low_priority_queue_.cleanup_terminated(delete_all) && empty;
 
             return empty;
         }
@@ -449,13 +450,13 @@ namespace hpx { namespace threads { namespace policies
         {
             bool empty = true;
 
-            empty = queues_[num_thread]->cleanup_terminated(delete_all);
-            if (!delete_all)
-                return empty;
-
-            if (num_thread < high_priority_queues_.size())
-                empty = high_priority_queues_[num_thread]->
-                    cleanup_terminated(delete_all) && empty;
+//             empty = queues_[num_thread]->cleanup_terminated(delete_all);
+//             if (!delete_all)
+//                 return empty;
+//
+//             if (num_thread < high_priority_queues_.size())
+//                 empty = high_priority_queues_[num_thread]->
+//                     cleanup_terminated(delete_all) && empty;
 
             return empty;
         }
@@ -558,13 +559,6 @@ namespace hpx { namespace threads { namespace policies
                 if (result)
                     return true;
                 this_queue->increment_num_pending_misses();
-
-                bool have_staged = this_queue->
-                    get_staged_queue_length(std::memory_order_relaxed) != 0;
-
-                // Give up, we should have work to convert.
-                if (have_staged)
-                    return false;
             }
 
             for (std::size_t idx: victim_threads_[num_thread])
@@ -575,7 +569,7 @@ namespace hpx { namespace threads { namespace policies
                     num_thread < high_priority_queues)
                 {
                     thread_queue_type* q = high_priority_queues_[idx];
-                    if (q->get_next_thread(thrd, running))
+                    if (q->get_next_thread(thrd, true))
                     {
                         q->increment_num_stolen_from_pending();
                         this_high_priority_queue->
@@ -584,7 +578,7 @@ namespace hpx { namespace threads { namespace policies
                     }
                 }
 
-                if (queues_[idx]->get_next_thread(thrd, running))
+                if (queues_[idx]->get_next_thread(thrd, true))
                 {
                     queues_[idx]->increment_num_stolen_from_pending();
                     this_queue->increment_num_stolen_to_pending();
@@ -605,8 +599,7 @@ namespace hpx { namespace threads { namespace policies
                 num_thread = curr_queue_++ % queue_size;
 
             if (priority == thread_priority_high_recursive ||
-                priority == thread_priority_high ||
-                priority == thread_priority_boost)
+                priority == thread_priority_high)
             {
                 std::size_t num = num_thread % high_priority_queues_.size();
                 high_priority_queues_[num]->schedule_thread(thrd);
@@ -649,27 +642,14 @@ namespace hpx { namespace threads { namespace policies
         }
 
         /// Destroy the passed thread as it has been terminated
-        bool destroy_thread(threads::thread_data* thrd, std::int64_t& busy_count)
+        bool destroy_thread(threads::thread_data* thrd, std::size_t num_thread, std::int64_t& busy_count)
         {
-            for (std::size_t i = 0; i != high_priority_queues_.size(); ++i)
-            {
-                if (high_priority_queues_[i]->destroy_thread(thrd, busy_count))
-                    return true;
-            }
+            thread_queue_type* queue
+                = reinterpret_cast<thread_queue_type*>(thrd->get_queue());
 
-            for (std::size_t i = 0; i != queues_.size(); ++i)
-            {
-                if (queues_[i]->destroy_thread(thrd, busy_count))
-                    return true;
-            }
+            queue->destroy_thread(thrd, busy_count);
 
-            if (low_priority_queue_.destroy_thread(thrd, busy_count))
-                return true;
-
-            // the thread has to belong to one of the queues, always
-            HPX_ASSERT(false);
-
-            return false;
+            return true;
         }
 
         ///////////////////////////////////////////////////////////////////////
@@ -925,104 +905,6 @@ namespace hpx { namespace threads { namespace policies
             return wait_time / (count + 1);
         }
 #endif
-
-        /// This is a function which gets called periodically by the thread
-        /// manager to allow for maintenance tasks to be executed in the
-        /// scheduler. Returns true if the OS thread calling this function
-        /// has to be terminated (i.e. no more work has to be done).
-        virtual bool wait_or_add_new(std::size_t num_thread, bool running,
-            std::int64_t& idle_loop_count)
-        {
-            std::size_t added = 0;
-            bool result = true;
-
-            std::size_t high_priority_queues = high_priority_queues_.size();
-            thread_queue_type* this_high_priority_queue = nullptr;
-            thread_queue_type* this_queue = queues_[num_thread];
-
-            if (num_thread < high_priority_queues)
-            {
-                this_high_priority_queue = high_priority_queues_[num_thread];
-                result = this_high_priority_queue->wait_or_add_new(running,
-                            idle_loop_count, added)
-                        && result;
-                if (0 != added) return result;
-            }
-
-            result = this_queue->wait_or_add_new(
-                running, idle_loop_count, added) && result;
-            if (0 != added) return result;
-
-            // Check if we have been disabled
-            if (!running)
-            {
-                return true;
-            }
-
-            for (std::size_t idx: victim_threads_[num_thread])
-            {
-                HPX_ASSERT(idx != num_thread);
-
-                if (idx < high_priority_queues &&
-                    num_thread < high_priority_queues)
-                {
-                    thread_queue_type* q =  high_priority_queues_[idx];
-                    result = this_high_priority_queue->
-                        wait_or_add_new(running, idle_loop_count,
-                            added, q)
-                      && result;
-
-                    if (0 != added)
-                    {
-                        q->increment_num_stolen_from_staged(added);
-                        this_high_priority_queue->
-                            increment_num_stolen_to_staged(added);
-                        return result;
-                    }
-                }
-
-                result = this_queue->wait_or_add_new(running,
-                    idle_loop_count, added, queues_[idx]) && result;
-                if (0 != added)
-                {
-                    queues_[idx]->increment_num_stolen_from_staged(added);
-                    this_queue->increment_num_stolen_to_staged(added);
-                    return result;
-                }
-            }
-
-#ifdef HPX_HAVE_THREAD_MINIMAL_DEADLOCK_DETECTION
-            // no new work is available, are we deadlocked?
-            if (HPX_UNLIKELY(minimal_deadlock_detection && LHPX_ENABLED(error)))
-            {
-                bool suspended_only = true;
-
-                for (std::size_t i = 0; suspended_only && i != queues_.size(); ++i) {
-                    suspended_only = queues_[i]->dump_suspended_threads(
-                        i, idle_loop_count, running);
-                }
-
-                if (HPX_UNLIKELY(suspended_only)) {
-                    if (running) {
-                        LTM_(error) //-V128
-                            << "queue(" << num_thread << "): "
-                            << "no new work available, are we deadlocked?";
-                    }
-                    else {
-                        LHPX_CONSOLE_(hpx::util::logging::level::error) //-V128
-                              << "  [TM] " //-V128
-                              << "queue(" << num_thread << "): "
-                              << "no new work available, are we deadlocked?\n";
-                    }
-                }
-            }
-#endif
-
-            result = low_priority_queue_.wait_or_add_new(running,
-                idle_loop_count, added) && result;
-
-            return result;
-        }
 
         ///////////////////////////////////////////////////////////////////////
         void on_start_thread(std::size_t num_thread)

@@ -39,26 +39,26 @@
 ///////////////////////////////////////////////////////////////////////////////
 namespace hpx { namespace threads { namespace policies
 {
-#if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
-    namespace detail
-    {
-        struct reset_on_exit
-        {
-            reset_on_exit(std::atomic<std::int32_t>& counter)
-              : counter_(counter)
-            {
-                ++counter_;
-                HPX_ASSERT(counter_ > 0);
-            }
-            ~reset_on_exit()
-            {
-                HPX_ASSERT(counter_ > 0);
-                --counter_;
-            }
-            std::atomic<std::int32_t>& counter_;
-        };
-    }
-#endif
+// #if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
+//     namespace detail
+//     {
+//         struct reset_on_exit
+//         {
+//             reset_on_exit(std::atomic<std::int32_t>& counter)
+//               : counter_(counter)
+//             {
+//                 ++counter_;
+//                 HPX_ASSERT(counter_ > 0);
+//             }
+//             ~reset_on_exit()
+//             {
+//                 HPX_ASSERT(counter_ > 0);
+//                 --counter_;
+//             }
+//             std::atomic<std::int32_t>& counter_;
+//         };
+//     }
+// #endif
 
     ///////////////////////////////////////////////////////////////////////////
     /// The scheduler_base defines the interface to be implemented by all
@@ -73,9 +73,9 @@ namespace hpx { namespace threads { namespace policies
                 char const* description = "",
                 scheduler_mode mode = nothing_special)
           : mode_(mode)
-#if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
-          , wait_count_(0)
-#endif
+// #if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
+//           , wait_count_(0)
+// #endif
           , suspend_mtxs_(num_threads)
           , suspend_conds_(num_threads)
           , pu_mtxs_(num_threads)
@@ -118,14 +118,14 @@ namespace hpx { namespace threads { namespace policies
 
         void idle_callback(std::size_t /*num_thread*/)
         {
-#if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
-            // Put this thread to sleep for some time, additionally it gets
-            // woken up on new work.
-            std::chrono::milliseconds period(++wait_count_);
-
-            std::unique_lock<compat::mutex> l(mtx_);
-            cond_.wait_for(l, period);
-#endif
+// #if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
+//             // Put this thread to sleep for some time, additionally it gets
+//             // woken up on new work.
+//             std::chrono::milliseconds period(++wait_count_);
+//
+//             std::unique_lock<compat::mutex> l(mtx_);
+//             cond_.wait_for(l, period);
+// #endif
         }
 
         bool background_callback(std::size_t num_thread)
@@ -144,14 +144,14 @@ namespace hpx { namespace threads { namespace policies
         /// possibly idling OS threads
         void do_some_work(std::size_t num_thread)
         {
-#if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
-            wait_count_.store(0, std::memory_order_release);
-
-            if (num_thread == std::size_t(-1))
-                cond_.notify_all();
-            else
-                cond_.notify_one();
-#endif
+// #if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
+//             wait_count_.store(0, std::memory_order_release);
+//
+//             if (num_thread == std::size_t(-1))
+//                 cond_.notify_all();
+//             else
+//                 cond_.notify_one();
+// #endif
         }
 
         void suspend(std::size_t num_thread)
@@ -379,11 +379,8 @@ namespace hpx { namespace threads { namespace policies
             std::size_t num_thread,
             thread_priority priority = thread_priority_normal) = 0;
 
-        virtual bool destroy_thread(threads::thread_data* thrd,
+        virtual bool destroy_thread(threads::thread_data* thrd, std::size_t num_thread,
             std::int64_t& busy_count) = 0;
-
-        virtual bool wait_or_add_new(std::size_t num_thread, bool running,
-            std::int64_t& idle_loop_count) = 0;
 
         virtual void on_start_thread(std::size_t num_thread) = 0;
         virtual void on_stop_thread(std::size_t num_thread) = 0;
@@ -406,12 +403,12 @@ namespace hpx { namespace threads { namespace policies
     protected:
         std::atomic<scheduler_mode> mode_;
 
-#if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
-        // support for suspension on idle queues
-        compat::mutex mtx_;
-        compat::condition_variable cond_;
-        std::atomic<std::uint32_t> wait_count_;
-#endif
+// #if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
+//         // support for suspension on idle queues
+//         compat::mutex mtx_;
+//         compat::condition_variable cond_;
+//         std::atomic<std::uint32_t> wait_count_;
+// #endif
 
         // support for suspension of pus
         std::vector<compat::mutex> suspend_mtxs_;

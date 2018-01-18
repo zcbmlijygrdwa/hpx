@@ -65,7 +65,7 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
 #if defined(HPX_DEBUG)
     coroutine_impl::~coroutine_impl()
     {
-        HPX_ASSERT(!m_fun);   // functor should have been reset by now
+//         HPX_ASSERT(!m_fun);   // functor should have been reset by now
     }
 #endif
 

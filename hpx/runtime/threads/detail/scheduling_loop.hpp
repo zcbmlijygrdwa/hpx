@@ -405,7 +405,7 @@ namespace hpx { namespace threads { namespace detail
                         scheduler.SchedulingPolicy::
                             decrement_background_thread_count();
                         scheduler.SchedulingPolicy::destroy_thread(
-                            background_thread, busy_count);
+                            background_thread, num_thread, busy_count);
                         background_thread = nullptr;
                     }
                     else if(suspended == state_val)
@@ -586,11 +586,11 @@ namespace hpx { namespace threads { namespace detail
                     // now we just keep it in the map of threads.
                     if (HPX_UNLIKELY(state_val == pending))
                     {
-                        if (HPX_LIKELY(next_thrd == nullptr)) {
-                            // schedule other work
-                            scheduler.SchedulingPolicy::wait_or_add_new(
-                                num_thread, running, idle_loop_count);
-                        }
+//                         if (HPX_LIKELY(next_thrd == nullptr)) {
+//                             // schedule other work
+//                             scheduler.SchedulingPolicy::wait_or_add_new(
+//                                 num_thread, running, idle_loop_count);
+//                         }
 
                         // schedule this thread again, make sure it ends up at
                         // the end of the queue
@@ -614,8 +614,8 @@ namespace hpx { namespace threads { namespace detail
                             else
                             {
                                 // schedule other work
-                                scheduler.SchedulingPolicy::wait_or_add_new(
-                                    num_thread, running, idle_loop_count);
+//                                 scheduler.SchedulingPolicy::wait_or_add_new(
+//                                     num_thread, running, idle_loop_count);
 
                                 // schedule this thread again immediately with
                                 // boosted priority
@@ -661,23 +661,22 @@ namespace hpx { namespace threads { namespace detail
 #ifdef HPX_HAVE_THREAD_CUMULATIVE_COUNTS
                     ++counters.executed_threads_;
 #endif
-                    scheduler.SchedulingPolicy::destroy_thread(thrd, busy_loop_count);
+                    scheduler.destroy_thread(thrd, num_thread, busy_loop_count);
                 }
             }
 
             // if nothing else has to be done either wait or terminate
             else
             {
+                next_thrd = nullptr;
                 ++idle_loop_count;
 
-                if (scheduler.SchedulingPolicy::wait_or_add_new(
-                        num_thread, running, idle_loop_count))
+//                 if (scheduler.SchedulingPolicy::wait_or_add_new(
+//                         num_thread, running, idle_loop_count))
+                if (!running)
                 {
                     // clean up terminated threads one more time before sleeping
                     bool can_exit =
-                        !running &&
-                        scheduler.SchedulingPolicy::cleanup_terminated(
-                            num_thread, true) &&
                         scheduler.SchedulingPolicy::get_thread_count(
                             suspended, thread_priority_default, num_thread) == 0;
 
@@ -806,8 +805,6 @@ namespace hpx { namespace threads { namespace detail
                     {
                         bool can_exit =
                             !running &&
-                            scheduler.SchedulingPolicy::cleanup_terminated(
-                                true) &&
                             scheduler.SchedulingPolicy::get_thread_count(
                                 suspended, thread_priority_default,
                                 num_thread) == 0;
@@ -820,10 +817,6 @@ namespace hpx { namespace threads { namespace detail
                     }
 
                     may_exit = false;
-                }
-                else
-                {
-                    scheduler.SchedulingPolicy::cleanup_terminated(true);
                 }
             }
         }

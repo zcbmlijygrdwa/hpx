@@ -230,21 +230,8 @@ namespace hpx { namespace threads { namespace coroutines
                     (stack_size == -1) ?
                     alloc_.minimum_stacksize() : std::size_t(stack_size)
                 )
-              , stack_pointer_(alloc_.allocate(stack_size_))
+              , stack_pointer_(nullptr)
             {
-#if BOOST_VERSION < 105600
-                boost::context::fcontext_t* ctx =
-                    boost::context::make_fcontext(stack_pointer_, stack_size_, funp_);
-
-                std::swap(*ctx, ctx_);
-#elif BOOST_VERSION < 106100
-                ctx_ =
-                    boost::context::make_fcontext(stack_pointer_, stack_size_, funp_);
-#else
-                ctx_ =
-                    boost::context::detail::make_fcontext(
-                            stack_pointer_, stack_size_, funp_);
-#endif
             }
 
             ~fcontext_context_impl()
@@ -259,6 +246,28 @@ namespace hpx { namespace threads { namespace coroutines
 #if BOOST_VERSION < 105600
                     ctx_.fc_stack.size = 0;
                     ctx_.fc_stack.sp = 0;
+#endif
+                }
+            }
+
+            void init()
+            {
+                if (stack_pointer == nullptr)
+                {
+                    stack_pointer_ = alloc_.allocate(stack_size_);
+
+#if BOOST_VERSION < 105600
+                    boost::context::fcontext_t* ctx =
+                        boost::context::make_fcontext(stack_pointer_, stack_size_, funp_);
+
+                    std::swap(*ctx, ctx_);
+#elif BOOST_VERSION < 106100
+                    ctx_ =
+                        boost::context::make_fcontext(stack_pointer_, stack_size_, funp_);
+#else
+                    ctx_ =
+                        boost::context::detail::make_fcontext(
+                                stack_pointer_, stack_size_, funp_);
 #endif
                 }
             }

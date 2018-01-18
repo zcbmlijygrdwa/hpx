@@ -67,12 +67,12 @@ namespace hpx { namespace threads { namespace policies
         using local_queue_scheduler<
             Mutex, PendingQueuing, StagedQueuing, TerminatedQueuing>::queues_;
 
-#if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
-        using local_queue_scheduler<
-            Mutex, PendingQueuing, StagedQueuing, TerminatedQueuing>::mtx_;
-        using local_queue_scheduler<
-            Mutex, PendingQueuing, StagedQueuing, TerminatedQueuing>::cond_;
-#endif
+// #if defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
+//         using local_queue_scheduler<
+//             Mutex, PendingQueuing, StagedQueuing, TerminatedQueuing>::mtx_;
+//         using local_queue_scheduler<
+//             Mutex, PendingQueuing, StagedQueuing, TerminatedQueuing>::cond_;
+// #endif
         using local_queue_scheduler<
             Mutex, PendingQueuing, StagedQueuing, TerminatedQueuing>::curr_queue_;
 
@@ -109,7 +109,6 @@ namespace hpx { namespace threads { namespace policies
             while (disabled(num_thread)) {
                 thread_queue_type* q = queues_[num_thread];
                 while (q->get_next_thread(thrd)) {
-                    this->wait_or_add_new(num_thread, running, idle_loop_count) ;
                     this->schedule_thread(thrd, num_thread, thread_priority_normal);
                 }
 
@@ -276,10 +275,10 @@ namespace hpx { namespace threads { namespace policies
     protected:
         typedef hpx::lcos::local::spinlock mutex_type;
         mutex_type throttle_mtx_;
-#if !defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
+// #if !defined(HPX_HAVE_THREAD_MANAGER_IDLE_BACKOFF)
         mutable compat::mutex mtx_;
         compat::condition_variable cond_;
-#endif
+// #endif
         mutable boost::dynamic_bitset<> disabled_os_threads_;
         int num_physical_cores;
         int num_logical_cores;

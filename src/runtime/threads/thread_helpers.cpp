@@ -498,7 +498,7 @@ namespace hpx { namespace this_thread
             if (nextid && nextid->get_scheduler_base() != id->get_scheduler_base())
             {
                 nextid->get_scheduler_base()->schedule_thread(
-                    nextid.get(), std::size_t(-1));
+                    nextid, std::size_t(-1));
                 statex = self.yield(threads::thread_result_type(state, nullptr));
             }
             else
@@ -565,7 +565,7 @@ namespace hpx { namespace this_thread
             if (nextid && nextid->get_scheduler_base() != id->get_scheduler_base())
             {
                 nextid->get_scheduler_base()->schedule_thread(
-                    nextid.get(), std::size_t(-1));
+                    nextid, std::size_t(-1));
                 statex = self.yield(
                     threads::thread_result_type(threads::suspended, nullptr));
             }

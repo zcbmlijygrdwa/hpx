@@ -187,7 +187,8 @@ namespace hpx { namespace threads { namespace coroutines
               : m_stack_size(stack_size == -1
                   ? static_cast<std::ptrdiff_t>(default_stack_size)
                   : stack_size),
-                m_stack(nullptr)
+                m_stack(nullptr),
+                cb_(&cb)
             {
                 if (0 != (m_stack_size % EXEC_PAGESIZE))
                 {
@@ -204,27 +205,10 @@ namespace hpx { namespace threads { namespace coroutines
                             m_stack_size));
                 }
 
-                m_stack = posix::alloc_stack(static_cast<std::size_t>(m_stack_size));
-                HPX_ASSERT(m_stack);
-                posix::watermark_stack(m_stack, static_cast<std::size_t>(m_stack_size));
-
                 typedef void fun(Functor*);
                 fun * funp = trampoline;
 
-                m_sp = (static_cast<void**>(m_stack)
-                    + static_cast<std::size_t>(m_stack_size) / sizeof(void*))
-                    - context_size;
-
-                m_sp[backup_cb_idx] = m_sp[cb_idx] = &cb;
-                m_sp[backup_funp_idx] = m_sp[funp_idx] = nasty_cast<void*>(funp);
-
-#if defined(HPX_HAVE_VALGRIND) && !defined(NVALGRIND)
-                {
-                    void * eos = static_cast<char*>(m_stack) + m_stack_size;
-                    m_sp[valgrind_id_idx] = reinterpret_cast<void*>(
-                        VALGRIND_STACK_REGISTER(m_stack, eos));
-                }
-#endif
+                funp_ = nasty_cast<void*>(funp);
 
 #if defined(HPX_HAVE_STACKOVERFLOW_DETECTION)
                 // concept inspired by the following links:
@@ -245,6 +229,32 @@ namespace hpx { namespace threads { namespace coroutines
                 sigaddset(&action.sa_mask, SIGSEGV);
                 sigaction(SIGSEGV, &action, nullptr);
 #endif
+           }
+
+            void init()
+            {
+                if (m_stack == nullptr)
+                {
+                    m_stack = posix::alloc_stack(static_cast<std::size_t>(m_stack_size));
+                    HPX_ASSERT(m_stack);
+                    posix::watermark_stack(m_stack, static_cast<std::size_t>(m_stack_size));
+
+                    m_sp = (static_cast<void**>(m_stack)
+                        + static_cast<std::size_t>(m_stack_size) / sizeof(void*))
+                        - context_size;
+
+                    m_sp[backup_cb_idx] = m_sp[cb_idx] = cb_;
+                    m_sp[backup_funp_idx] = m_sp[funp_idx] = funp_;
+
+
+#if defined(HPX_HAVE_VALGRIND) && !defined(NVALGRIND)
+                    {
+                        void * eos = static_cast<char*>(m_stack) + m_stack_size;
+                        m_sp[valgrind_id_idx] = reinterpret_cast<void*>(
+                            VALGRIND_STACK_REGISTER(m_stack, eos));
+                    }
+#endif
+               }
            }
 
 #if defined(HPX_HAVE_STACKOVERFLOW_DETECTION)
@@ -442,9 +452,11 @@ namespace hpx { namespace threads { namespace coroutines
             static const std::size_t cb_idx = 6;
             static const std::size_t funp_idx = 4;
 #endif
-
             std::ptrdiff_t m_stack_size;
             void* m_stack;
+
+            void * cb_;
+            void * funp_;
 
 #if defined(HPX_HAVE_STACKOVERFLOW_DETECTION)
             struct sigaction action;

@@ -419,12 +419,16 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
         // Nothrow.
         void do_yield() noexcept
         {
+            // Lazy initialization to initialize the full stack...
+            init();
             swap_context(*this, m_caller, detail::yield_hint());
         }
 
         // Nothrow.
         void do_invoke() throw ()
         {
+            // Lazy initialization to initialize the full stack...
+            init();
             HPX_ASSERT(is_ready() || waiting());
 #if defined(HPX_HAVE_THREAD_PHASE_INFORMATION)
             ++m_phase;

@@ -236,15 +236,10 @@ namespace hpx { namespace threads { namespace coroutines
             explicit ucontext_context_impl(Functor & cb, std::ptrdiff_t stack_size)
               : m_stack_size(stack_size == -1 ? (std::ptrdiff_t)default_stack_size
                     : stack_size),
-                m_stack(alloc_stack(m_stack_size)),
+                m_stack(nullptr),
                 cb_(&cb)
             {
-                HPX_ASSERT(m_stack);
                 funp_ = &trampoline<Functor>;
-                int error = HPX_COROUTINE_MAKE_CONTEXT(
-                    &m_ctx, m_stack, m_stack_size, funp_, cb_, nullptr);
-                HPX_UNUSED(error);
-                HPX_ASSERT(error == 0);
 
 #if defined(HPX_HAVE_STACKOVERFLOW_DETECTION)
                 // concept inspired by the following links:
@@ -265,6 +260,20 @@ namespace hpx { namespace threads { namespace coroutines
                 sigaddset(&action.sa_mask, SIGSEGV);
                 sigaction(SIGSEGV, &action, nullptr);
 #endif
+            }
+
+            void init()
+            {
+                if (m_stack == nullptr)
+                {
+                    m_stack = alloc_stack(m_stack_size);
+                    HPX_ASSERT(m_stack);
+
+                    int error = HPX_COROUTINE_MAKE_CONTEXT(
+                        &m_ctx, m_stack, m_stack_size, funp_, cb_, nullptr);
+                    HPX_UNUSED(error);
+                    HPX_ASSERT(error == 0);
+                }
             }
 
 #if defined(HPX_HAVE_STACKOVERFLOW_DETECTION)

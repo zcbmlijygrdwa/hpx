@@ -94,24 +94,11 @@ namespace hpx { namespace threads
         struct tag {};
         typedef util::spinlock_pool<tag> mutex_type;
 
-        typedef boost::lockfree::caching_freelist<thread_data> pool_type;
-
         static thread_data* create(
-            thread_init_data& init_data, pool_type& pool,
+            thread_init_data& init_data, void *queue,
             thread_state_enum newstate)
         {
-            thread_data* ret = pool.allocate();
-            if (ret == nullptr)
-            {
-                HPX_THROW_EXCEPTION(out_of_memory,
-                    "thread_data::operator new",
-                    "could not allocate memory for thread_data");
-            }
-#ifdef HPX_DEBUG_THREAD_POOL
-            using namespace std;    // some systems have memset in namespace std
-            memset (ret, initial_value, sizeof(thread_data));
-#endif
-            return new (ret) thread_data(init_data, &pool, newstate);
+            return new thread_data(init_data, queue, newstate);
         }
 
         ~thread_data()
@@ -503,9 +490,14 @@ namespace hpx { namespace threads
             return stacksize_;
         }
 
-        pool_type* get_pool()
+        void set_queue(void* queue)
         {
-            return pool_;
+            queue_ = queue;
+        }
+
+        void* get_queue()
+        {
+            return queue_;
         }
 
         /// \brief Execute the thread function
@@ -570,9 +562,22 @@ namespace hpx { namespace threads
         /// This function will be called when the thread is about to be deleted
         //virtual void reset() {}
 
+        struct list_helper {
+            list_helper() : next_(nullptr), refcount_(0)
+#ifdef HPX_HAVE_THREAD_QUEUE_WAITTIME
+              , time_(0)
+#endif
+            {}
+            std::atomic<thread_data*> next_;
+            std::atomic<std::uint32_t> refcount_;
+#ifdef HPX_HAVE_THREAD_QUEUE_WAITTIME
+            std::uint64_t time_;
+#endif
+        } list_;
+
         /// Construct a new \a thread
         thread_data(thread_init_data& init_data,
-            pool_type* pool, thread_state_enum newstate)
+            void* queue, thread_state_enum newstate)
           : current_state_(thread_state(newstate, wait_signaled)),
 #ifdef HPX_HAVE_THREAD_TARGET_ADDRESS
             component_id_(init_data.lva),
@@ -600,7 +605,7 @@ namespace hpx { namespace threads
             stacksize_(init_data.stacksize),
             coroutine_(std::move(init_data.func),
                 this_(), init_data.stacksize),
-            pool_(pool)
+            queue_(queue)
         {
             LTM_(debug) << "thread::thread(" << this << "), description("
                         << get_description() << ")";
@@ -724,10 +729,8 @@ namespace hpx { namespace threads
         std::ptrdiff_t stacksize_;
 
         coroutine_type coroutine_;
-        pool_type* pool_;
+        void* queue_;
     };
-
-    typedef thread_data::pool_type thread_pool;
 }}
 
 #include <hpx/config/warnings_suffix.hpp>
