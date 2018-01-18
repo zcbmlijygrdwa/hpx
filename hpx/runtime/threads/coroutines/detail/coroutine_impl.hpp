@@ -44,8 +44,6 @@
 #include <hpx/util/assert.hpp>
 #include <hpx/util/unique_function.hpp>
 
-#include <boost/smart_ptr/intrusive_ptr.hpp>
-
 #include <cstddef>
 #include <utility>
 
@@ -69,8 +67,6 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
 
         typedef util::unique_function_nonser<result_type(arg_type)> functor_type;
 
-        typedef boost::intrusive_ptr<coroutine_impl> pointer;
-
         coroutine_impl(functor_type&& f, thread_id_type id,
             std::ptrdiff_t stack_size)
           : context_base(*this, stack_size, id)
@@ -80,46 +76,9 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
           , m_fun(std::move(f))
         {}
 
-        ~coroutine_impl()
 #if defined(HPX_DEBUG)
-            ;
-#else
-        {}
+        HPX_EXPORT ~coroutine_impl();
 #endif
-
-        static inline coroutine_impl* create(
-            functor_type&& f, thread_id_type id = nullptr,
-            std::ptrdiff_t stack_size = default_stack_size)
-        {
-            coroutine_impl* p = allocate(id, stack_size);
-
-            if (!p)
-            {
-                std::size_t const heap_num = std::size_t(id.thrd_) / 32; //-V112
-
-                // allocate a new coroutine object, if non is available (or all
-                // heaps are locked)
-                context_base::increment_allocation_count(heap_num);
-                p = new coroutine_impl(std::move(f),
-                    id, stack_size);
-            } else {
-                // we reuse an existing object, we need to rebind its function
-                p->rebind(std::move(f), id);
-            }
-            return p;
-        }
-
-        static inline void rebind(
-            coroutine_impl* p, functor_type&& f, thread_id_type id = nullptr)
-        {
-            p->rebind(std::move(f), id);
-        }
-
-        static inline void destroy(coroutine_impl* p)
-        {
-            // always hand the stack back to the matching heap
-            deallocate(p);
-        }
 
         HPX_EXPORT void operator()();
 
@@ -173,12 +132,6 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
             m_fun = std::move(f);
             this->super_type::rebind_base(id);
         }
-
-    private:
-        static HPX_EXPORT coroutine_impl* allocate(
-            thread_id_type id, std::ptrdiff_t stacksize);
-
-        static HPX_EXPORT void deallocate(coroutine_impl* wrapper);
 
     private:
         result_type m_result_last;

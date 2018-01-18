@@ -135,12 +135,6 @@ namespace hpx { namespace threads { namespace coroutines { namespace detail
             std::terminate(); // FIXME: replace with hpx::terminate();
         }
 
-        bool pending() const
-        {
-            HPX_ASSERT(m_pimpl);
-            return m_pimpl->pending() != 0;
-        }
-
         thread_id_type get_thread_id() const
         {
             HPX_ASSERT(m_pimpl);
