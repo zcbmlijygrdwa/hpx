@@ -13,7 +13,15 @@
 #include <hpx/util/high_resolution_timer.hpp>
 #include <hpx/include/async.hpp>
 #include <hpx/include/iostreams.hpp>
-
+//
+#include <hpx/runtime/threads/detail/scheduled_thread_pool_impl.hpp>
+#include <hpx/runtime/threads/policies/local_priority_queue_scheduler.hpp>
+#include <examples/resource_partitioner/shared_priority_scheduler.hpp>
+#include <hpx/include/parallel_execution.hpp>
+#include <hpx/runtime/threads/executors/pool_executor.hpp>
+//
+#include <hpx/lcos/local/sliding_semaphore.hpp>
+//
 #include <cstdint>
 #include <stdexcept>
 #include <vector>
@@ -97,13 +105,24 @@ void measure_function_futures(std::uint64_t count, bool csv)
 
     futures.reserve(count);
 
+    hpx::parallel::execution::default_executor exec =
+      hpx::parallel::execution::default_executor(
+          hpx::threads::thread_priority_high);
+
     // start the clock
     high_resolution_timer walltime;
 
-    for (std::uint64_t i = 0; i < count; ++i)
-        futures.push_back(async(&null_function));
-
-    wait_each(scratcher(), futures);
+    hpx::lcos::local::sliding_semaphore sem(1000);
+    for (std::uint64_t i = 0; i < count; ++i) {
+        if (i % 1000) {
+            hpx::async(exec, [&](){ sem.signal(i); });
+        }
+        else {
+            hpx::async(exec, &null_function);
+        }
+        sem.wait(i);
+    }
+    sem.wait(count);
 
     // stop the clock
     const double duration = walltime.elapsed();
@@ -133,7 +152,7 @@ int hpx_main(
         if (HPX_UNLIKELY(0 == count))
             throw std::logic_error("error: count of 0 futures specified\n");
 
-        measure_action_futures(count, vm.count("csv") != 0);
+//        measure_action_futures(count, vm.count("csv") != 0);
         measure_function_futures(count, vm.count("csv") != 0);
     }
 
@@ -162,6 +181,40 @@ int main(
         ( "csv"
         , "output results as csv (format: count,duration)")
         ;
+
+#ifndef MY_QUEUE
+    // Create the resource partitioner
+    hpx::resource::partitioner rp(cmdline, argc, argv);
+
+    // declare the high priority scheduler type we'll use
+    using high_priority_sched = hpx::threads::policies::shared_priority_scheduler<>;
+    using other_scheduler = hpx::threads::policies::local_priority_queue_scheduler<>;
+    using namespace hpx::threads::policies;
+    // setup the default pool with our custom priority scheduler
+    rp.create_thread_pool(
+      "default",
+      [](hpx::threads::policies::callback_notifier& notifier, std::size_t num_threads,
+         std::size_t thread_offset, std::size_t pool_index,
+         std::string const& pool_name) -> std::unique_ptr<hpx::threads::thread_pool_base> {
+        std::cout << "User defined scheduler creation callback " << std::endl;
+        scheduler_mode mode = scheduler_mode(scheduler_mode::do_background_work);
+#if 0
+        std::unique_ptr<other_scheduler> scheduler(new other_scheduler(
+            num_threads, "shared-priority-scheduler"));
+        std::unique_ptr<hpx::threads::thread_pool_base> pool(
+            new hpx::threads::detail::scheduled_thread_pool<other_scheduler>(
+                std::move(scheduler), notifier, pool_index, pool_name, mode, thread_offset));
+#else
+        std::unique_ptr<high_priority_sched> scheduler(new high_priority_sched(
+            num_threads, {16,16,16}, "shared-priority-scheduler"));
+        std::unique_ptr<hpx::threads::thread_pool_base> pool(
+            new hpx::threads::detail::scheduled_thread_pool<high_priority_sched>(
+                std::move(scheduler), notifier, pool_index, pool_name, mode, thread_offset));
+#endif
+
+        return pool;
+      });
+#endif
 
     // Initialize and run HPX.
     return init(cmdline, argc, argv);
