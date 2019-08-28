@@ -16,7 +16,7 @@
 int main()
 {
     // Say hello to the world!
-    hpx::cout << "Hello World!\n" << hpx::flush;
+    std::cout << "Hello World!\n" << std::flush;
     return 0;
 }
 //]

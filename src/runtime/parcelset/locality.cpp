@@ -7,6 +7,7 @@
 #include <hpx/config.hpp>
 #include <hpx/assertion.hpp>
 #include <hpx/runtime.hpp>
+#include <hpx/runtime_distributed.hpp>
 #include <hpx/runtime/parcelset/locality.hpp>
 #include <hpx/runtime/parcelset/parcelhandler.hpp>
 #include <hpx/runtime/serialization/serialize.hpp>
@@ -33,7 +34,10 @@ namespace hpx { namespace parcelset
         ar >> t;
         if(t.empty()) return;
         HPX_ASSERT(get_runtime_ptr());
-        impl_ = get_runtime().get_parcel_handler().create_locality(t).impl_;
+        impl_ = get_runtime_distributed()
+                    .get_parcel_handler()
+                    .create_locality(t)
+                    .impl_;
         impl_->load(ar);
         HPX_ASSERT(impl_->valid());
     }

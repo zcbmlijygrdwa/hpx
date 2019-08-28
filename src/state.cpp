@@ -8,6 +8,7 @@
 #include <hpx/config.hpp>
 #include <hpx/state.hpp>
 #include <hpx/runtime.hpp>
+#include <hpx/runtime_distributed.hpp>
 #include <hpx/runtime/threads/threadmanager.hpp>
 #include <hpx/runtime/naming/resolver_client.hpp>
 
@@ -42,7 +43,7 @@ namespace hpx
         // return whether resolver client is in state described by st
         bool router_is(state st)
         {
-            runtime* rt = get_runtime_ptr();
+            runtime_distributed* rt = get_runtime_distributed_ptr();
             if (nullptr == rt) {
                 // we're probably either starting or stopping
                 return st == state_starting || st == state_stopping;

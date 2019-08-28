@@ -10,6 +10,7 @@
 #include <hpx/runtime/actions/plain_action.hpp>
 #include <hpx/runtime/get_locality_name.hpp>
 #include <hpx/runtime.hpp>
+#include <hpx/runtime_distributed.hpp>
 
 #include <string>
 
@@ -17,7 +18,7 @@ namespace hpx { namespace detail
 {
     std::string get_locality_base_name()
     {
-        runtime* rt = get_runtime_ptr();
+        runtime_distributed* rt = get_runtime_distributed_ptr();
         if (rt == nullptr)
         {
             HPX_THROW_EXCEPTION(invalid_status,

@@ -14,14 +14,15 @@
 namespace hpx
 {
     class HPX_API_EXPORT runtime;
-
-    ///////////////////////////////////////////////////////////////////////////
-    class HPX_API_EXPORT runtime_impl;
+    class HPX_API_EXPORT runtime_distributed;
 
     /// The function \a get_runtime returns a reference to the (thread
     /// specific) runtime instance.
     HPX_API_EXPORT runtime& get_runtime();
     HPX_API_EXPORT runtime*& get_runtime_ptr();
+
+    HPX_API_EXPORT runtime_distributed& get_runtime_distributed();
+    HPX_API_EXPORT runtime_distributed*& get_runtime_distributed_ptr();
 
     /// Return true if networking is enabled.
     ///

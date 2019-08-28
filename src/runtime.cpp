@@ -15,14 +15,8 @@
 #include <hpx/performance_counters/manage_counter_type.hpp>
 #include <hpx/performance_counters/registry.hpp>
 #include <hpx/runtime.hpp>
-#include <hpx/runtime/agas/addressing_service.hpp>
-#include <hpx/runtime/applier/applier.hpp>
-#include <hpx/runtime/components/server/memory.hpp>
-#include <hpx/runtime/components/server/runtime_support.hpp>
-#include <hpx/runtime/components/server/simple_component_base.hpp>    // EXPORTS get_next_id
 #include <hpx/runtime/config_entry.hpp>
 #include <hpx/runtime/launch_policy.hpp>
-#include <hpx/runtime/parcelset/parcelhandler.hpp>
 #include <hpx/runtime/thread_hooks.hpp>
 #include <hpx/runtime/threads/coroutines/coroutine.hpp>
 #include <hpx/runtime/threads/policies/scheduler_mode.hpp>
@@ -146,12 +140,6 @@ namespace hpx
 namespace hpx
 {
     ///////////////////////////////////////////////////////////////////////////
-    // There is no need to protect these global from thread concurrent access
-    // as they are access during early startup only.
-    std::vector<hpx::util::tuple<char const*, char const*> >
-        message_handler_registrations;
-
-    ///////////////////////////////////////////////////////////////////////////
     HPX_EXPORT void HPX_CDECL new_handler()
     {
         HPX_THROW_EXCEPTION(out_of_memory, "new_handler",
@@ -252,8 +240,6 @@ namespace hpx
         thread_support_(new util::thread_mapper),
         topology_(resource::get_partitioner().get_topology()),
         state_(state_invalid),
-        memory_(new components::server::memory),
-        runtime_support_(new components::server::runtime_support(ini_)),
         on_start_func_(global_on_start_func),
         on_stop_func_(global_on_stop_func),
         on_error_func_(global_on_error_func)
@@ -381,30 +367,6 @@ namespace hpx
     {
         if (active_counters_.get())
             active_counters_->stop_evaluating_counters();
-    }
-
-    void runtime::register_message_handler(char const* message_handler_type,
-        char const* action, error_code& ec)
-    {
-        return runtime_support_->register_message_handler(
-            message_handler_type, action, ec);
-    }
-
-    parcelset::policies::message_handler* runtime::create_message_handler(
-        char const* message_handler_type, char const* action,
-        parcelset::parcelport* pp, std::size_t num_messages,
-        std::size_t interval, error_code& ec)
-    {
-        return runtime_support_->create_message_handler(message_handler_type,
-            action, pp, num_messages, interval, ec);
-    }
-
-    serialization::binary_filter* runtime::create_binary_filter(
-        char const* binary_filter_type, bool compress,
-        serialization::binary_filter* next_filter, error_code& ec)
-    {
-        return runtime_support_->create_binary_filter(binary_filter_type,
-            compress, next_filter, ec);
     }
 
     /// \brief Register all performance counter types related to this runtime
@@ -850,11 +812,6 @@ namespace hpx
         return runtime_;
     }
 
-    naming::gid_type const & get_locality()
-    {
-        return get_runtime().get_agas_client().get_local_locality();
-    }
-
     std::string get_thread_name()
     {
         std::string& thread_name = detail::thread_name();
@@ -893,7 +850,7 @@ namespace hpx
             return;
         }
 
-        hpx::applier::get_applier().get_thread_manager().report_error(num_thread, e);
+        get_runtime().get_thread_manager().report_error(num_thread, e);
     }
 
     void report_error(std::exception_ptr const& e)
@@ -910,7 +867,7 @@ namespace hpx
         }
 
         std::size_t num_thread = hpx::get_worker_thread_num();
-        hpx::applier::get_applier().get_thread_manager().report_error(num_thread, e);
+        get_runtime().get_thread_manager().report_error(num_thread, e);
     }
 
     bool register_on_exit(util::function_nonser<void()> const& f)
@@ -1014,189 +971,6 @@ namespace hpx
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    // Helpers
-    naming::id_type find_here(error_code& ec)
-    {
-        if (nullptr == hpx::applier::get_applier_ptr())
-        {
-            HPX_THROWS_IF(ec, invalid_status, "hpx::find_here",
-                "the runtime system is not available at this time");
-            return naming::invalid_id;
-        }
-
-        static naming::id_type here(
-            hpx::applier::get_applier().get_raw_locality(ec),
-            naming::id_type::unmanaged);
-        return here;
-    }
-
-    naming::id_type find_root_locality(error_code& ec)
-    {
-        runtime* rt = hpx::get_runtime_ptr();
-        if (nullptr == rt)
-        {
-            HPX_THROWS_IF(ec, invalid_status, "hpx::find_root_locality",
-                "the runtime system is not available at this time");
-            return naming::invalid_id;
-        }
-
-        naming::gid_type console_locality;
-        if (!rt->get_agas_client().get_console_locality(console_locality))
-        {
-            HPX_THROWS_IF(ec, invalid_status, "hpx::find_root_locality",
-                "the root locality is not available at this time");
-            return naming::invalid_id;
-        }
-
-        if (&ec != &throws)
-            ec = make_success_code();
-
-        return naming::id_type(console_locality, naming::id_type::unmanaged);
-    }
-
-    std::vector<naming::id_type>
-    find_all_localities(components::component_type type, error_code& ec)
-    {
-        std::vector<naming::id_type> locality_ids;
-        if (nullptr == hpx::applier::get_applier_ptr())
-        {
-            HPX_THROWS_IF(ec, invalid_status, "hpx::find_all_localities",
-                "the runtime system is not available at this time");
-            return locality_ids;
-        }
-
-        hpx::applier::get_applier().get_localities(locality_ids, type, ec);
-        return locality_ids;
-    }
-
-    std::vector<naming::id_type> find_all_localities(error_code& ec)
-    {
-        std::vector<naming::id_type> locality_ids;
-        if (nullptr == hpx::applier::get_applier_ptr())
-        {
-            HPX_THROWS_IF(ec, invalid_status, "hpx::find_all_localities",
-                "the runtime system is not available at this time");
-            return locality_ids;
-        }
-
-        hpx::applier::get_applier().get_localities(locality_ids, ec);
-        return locality_ids;
-    }
-
-    std::vector<naming::id_type>
-    find_remote_localities(components::component_type type, error_code& ec)
-    {
-        std::vector<naming::id_type> locality_ids;
-        if (nullptr == hpx::applier::get_applier_ptr())
-        {
-            HPX_THROWS_IF(ec, invalid_status, "hpx::find_remote_localities",
-                "the runtime system is not available at this time");
-            return locality_ids;
-        }
-
-        hpx::applier::get_applier().get_remote_localities(locality_ids, type, ec);
-        return locality_ids;
-    }
-
-    std::vector<naming::id_type> find_remote_localities(error_code& ec)
-    {
-        std::vector<naming::id_type> locality_ids;
-        if (nullptr == hpx::applier::get_applier_ptr())
-        {
-            HPX_THROWS_IF(ec, invalid_status, "hpx::find_remote_localities",
-                "the runtime system is not available at this time");
-            return locality_ids;
-        }
-
-        hpx::applier::get_applier().get_remote_localities(locality_ids,
-            components::component_invalid, ec);
-
-        return locality_ids;
-    }
-
-    // find a locality supporting the given component
-    naming::id_type find_locality(components::component_type type, error_code& ec)
-    {
-        if (nullptr == hpx::applier::get_applier_ptr())
-        {
-            HPX_THROWS_IF(ec, invalid_status, "hpx::find_locality",
-                "the runtime system is not available at this time");
-            return naming::invalid_id;
-        }
-
-        std::vector<naming::id_type> locality_ids;
-        hpx::applier::get_applier().get_localities(locality_ids, type, ec);
-
-        if (ec || locality_ids.empty())
-            return naming::invalid_id;
-
-        // chose first locality to host the object
-        return locality_ids.front();
-    }
-
-    /// \brief Return the number of localities which are currently registered
-    ///        for the running application.
-    std::uint32_t get_num_localities(hpx::launch::sync_policy, error_code& ec)
-    {
-        if (nullptr == hpx::get_runtime_ptr())
-            return 0;
-
-        return get_runtime().get_agas_client().get_num_localities(ec);
-    }
-
-    std::uint32_t get_initial_num_localities()
-    {
-        if (nullptr == hpx::get_runtime_ptr())
-            return 0;
-
-        return get_runtime().get_config().get_num_localities();
-    }
-
-    std::uint32_t get_num_localities(hpx::launch::sync_policy,
-        components::component_type type, error_code& ec)
-    {
-        if (nullptr == hpx::get_runtime_ptr())
-            return 0;
-
-        return get_runtime().get_agas_client().get_num_localities(type, ec);
-    }
-
-    lcos::future<std::uint32_t> get_num_localities()
-    {
-        if (nullptr == hpx::get_runtime_ptr())
-            return lcos::make_ready_future<std::uint32_t>(0);
-
-        return get_runtime().get_agas_client().get_num_localities_async();
-    }
-
-    lcos::future<std::uint32_t> get_num_localities(
-        components::component_type type)
-    {
-        if (nullptr == hpx::get_runtime_ptr())
-            return lcos::make_ready_future<std::uint32_t>(0);
-
-        return get_runtime().get_agas_client().get_num_localities_async(type);
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    namespace detail
-    {
-        naming::gid_type get_next_id(std::size_t count)
-        {
-            if (nullptr == get_runtime_ptr())
-                return naming::invalid_gid;
-
-            return get_runtime().get_next_id(count);
-        }
-
-        ///////////////////////////////////////////////////////////////////////////
-        void dijkstra_make_black()
-        {
-            get_runtime_support_ptr()->dijkstra_make_black();
-        }
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
     std::size_t get_os_thread_count()
     {
         runtime* rt = get_runtime_ptr();
@@ -1241,23 +1015,6 @@ namespace hpx
         return threads::detail::get_thread_num_tss();
     }
 
-    std::size_t get_num_worker_threads()
-    {
-        runtime* rt = get_runtime_ptr();
-        if (nullptr == rt)
-        {
-            HPX_THROW_EXCEPTION(
-                invalid_status,
-                "hpx::get_num_worker_threads",
-                "the runtime system has not been initialized yet");
-            return std::size_t(0);
-        }
-
-        error_code ec(lightweight);
-        return static_cast<std::size_t>(
-            rt->get_agas_client().get_num_overall_threads(ec));
-    }
-
     bool is_scheduler_numa_sensitive()
     {
         runtime* rt = get_runtime_ptr();
@@ -1274,13 +1031,6 @@ namespace hpx
         if (std::size_t(-1) != get_worker_thread_num())
             return numa_sensitive;
         return false;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    components::server::runtime_support* get_runtime_support_ptr()
-    {
-        return reinterpret_cast<components::server::runtime_support*>(
-            get_runtime().get_runtime_support_lva());
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -1348,30 +1098,8 @@ namespace hpx { namespace util
 }}
 
 ///////////////////////////////////////////////////////////////////////////////
-namespace hpx { namespace naming
-{
-    // shortcut for get_runtime().get_agas_client()
-    resolver_client& get_agas_client()
-    {
-        return get_runtime().get_agas_client();
-    }
-}}
-
-///////////////////////////////////////////////////////////////////////////////
-namespace hpx { namespace parcelset
-{
-    bool do_background_work(
-        std::size_t num_thread, parcelport_background_mode mode)
-    {
-        return get_runtime().get_parcel_handler().do_background_work(
-            num_thread, mode);
-    }
-}}
-
-///////////////////////////////////////////////////////////////////////////////
 namespace hpx { namespace threads
 {
-    // shortcut for get_applier().get_thread_manager()
     threadmanager& get_thread_manager()
     {
         return get_runtime().get_thread_manager();
@@ -1435,11 +1163,6 @@ namespace hpx { namespace threads
 ///////////////////////////////////////////////////////////////////////////////
 namespace hpx
 {
-    std::uint32_t get_locality_id(error_code& ec)
-    {
-        return agas::get_locality_id(ec);
-    }
-
     std::uint64_t get_system_uptime()
     {
         return runtime::get_system_uptime();
@@ -1517,52 +1240,6 @@ namespace hpx
             HPX_THROWS_IF(ec, invalid_status, "evaluate_active_counters",
                 "the runtime system is not available at this time");
         }
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Create an instance of a message handler plugin
-    void register_message_handler(char const* message_handler_type,
-        char const* action, error_code& ec)
-    {
-        runtime* rt = get_runtime_ptr();
-        if (nullptr != rt) {
-            return rt->register_message_handler(message_handler_type, action, ec);
-        }
-
-        // store the request for later
-        message_handler_registrations.push_back(
-            hpx::util::make_tuple(message_handler_type, action));
-    }
-
-    parcelset::policies::message_handler* create_message_handler(
-        char const* message_handler_type, char const* action,
-        parcelset::parcelport* pp, std::size_t num_messages,
-        std::size_t interval, error_code& ec)
-    {
-        runtime* rt = get_runtime_ptr();
-        if (nullptr != rt) {
-            return rt->create_message_handler(message_handler_type, action,
-                pp, num_messages, interval, ec);
-        }
-
-        HPX_THROWS_IF(ec, invalid_status, "create_message_handler",
-            "the runtime system is not available at this time");
-        return nullptr;
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    // Create an instance of a binary filter plugin
-    serialization::binary_filter* create_binary_filter(char const* binary_filter_type,
-        bool compress, serialization::binary_filter* next_filter, error_code& ec)
-    {
-        runtime* rt = get_runtime_ptr();
-        if (nullptr != rt)
-            return rt->create_binary_filter
-                    (binary_filter_type, compress, next_filter, ec);
-
-        HPX_THROWS_IF(ec, invalid_status, "create_binary_filter",
-            "the runtime system is not available at this time");
-        return nullptr;
     }
 
     // helper function to stop evaluating counters during shutdown

@@ -607,8 +607,8 @@ namespace hpx { namespace threads
                     parent_thread_phase_ = self->get_thread_phase();
                 }
             }
-            if (0 == parent_locality_id_)
-                parent_locality_id_ = get_locality_id();
+            // if (0 == parent_locality_id_)
+            //     parent_locality_id_ = get_locality_id();
 #endif
 #if defined(HPX_HAVE_APEX)
             set_apex_data(init_data.apex_data);

@@ -25,6 +25,7 @@
 #include <hpx/performance_counters/counters.hpp>
 #include <hpx/performance_counters/manage_counter_type.hpp>
 #include <hpx/runtime.hpp>
+#include <hpx/runtime_distributed.hpp>
 #include <hpx/runtime/agas/addressing_service.hpp>
 #include <hpx/runtime/agas/big_boot_barrier.hpp>
 #include <hpx/runtime/agas/component_namespace.hpp>
@@ -221,6 +222,7 @@ void addressing_service::launch_bootstrap(
         reinterpret_cast<server::primary_namespace *>(primary_ns_.ptr())));
 
     runtime& rt = get_runtime();
+    runtime_distributed& rtd = get_runtime_distributed();
 
     naming::gid_type const here =
         naming::get_gid_from_locality_id(HPX_AGAS_BOOTSTRAP_PREFIX);
@@ -264,17 +266,17 @@ void addressing_service::launch_bootstrap(
     locality_ns_->allocate(endpoints, 0, num_threads, naming::invalid_gid);
 
     naming::gid_type runtime_support_gid1(here);
-    runtime_support_gid1.set_lsb(rt.get_runtime_support_lva());
+    runtime_support_gid1.set_lsb(rtd.get_runtime_support_lva());
     naming::gid_type runtime_support_gid2(here);
     runtime_support_gid2.set_lsb(std::uint64_t(0));
 
     gva runtime_support_address(here
       , components::get_component_type<components::server::runtime_support>()
-      , 1U, rt.get_runtime_support_lva());
+      , 1U, rtd.get_runtime_support_lva());
 
     naming::gid_type lower, upper;
     get_id_range(HPX_INITIAL_GID_RANGE, lower, upper);
-    rt.get_id_pool().set_range(lower, upper);
+    rtd.get_id_pool().set_range(lower, upper);
 
     register_name("/0/agas/locality#0", here);
     if (is_console())

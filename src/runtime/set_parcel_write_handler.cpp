@@ -5,6 +5,7 @@
 
 #include <hpx/config.hpp>
 #include <hpx/runtime.hpp>
+#include <hpx/runtime_distributed.hpp>
 #include <hpx/runtime/parcelset/parcelhandler.hpp>
 #include <hpx/errors.hpp>
 #include <hpx/runtime/set_parcel_write_handler.hpp>
@@ -14,7 +15,7 @@ namespace hpx
     HPX_API_EXPORT parcel_write_handler_type set_parcel_write_handler(
         parcel_write_handler_type const& f)
     {
-        runtime* rt = get_runtime_ptr();
+        runtime_distributed* rt = get_runtime_distributed_ptr();
         if (nullptr != rt)
             return rt->get_parcel_handler().set_write_handler(f);
 

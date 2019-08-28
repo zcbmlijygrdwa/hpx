@@ -30,7 +30,8 @@
 #include <hpx/runtime/shutdown_function.hpp>
 #include <hpx/runtime/startup_function.hpp>
 #include <hpx/runtime/threads/policies/schedulers.hpp>
-#include <hpx/runtime_impl.hpp>
+#include <hpx/runtime_impl_local.hpp>
+#include <hpx/runtime_impl_distributed.hpp>
 #include <hpx/testing.hpp>
 #include <hpx/util/apex.hpp>
 #include <hpx/util/bind_action.hpp>
@@ -655,7 +656,11 @@ namespace hpx
 
             hpx::assertion::set_assertion_handler(&detail::assertion_handler);
             hpx::util::set_test_failure_handler(&detail::test_failure_handler);
+// TODO: This one tries to access locality information. Only enable with
+// distributed runtime.
+#if 0
             hpx::set_custom_exception_info_handler(&detail::custom_exception_info);
+#endif
             hpx::set_pre_exception_handler(&detail::pre_exception_handler);
 #if defined(HPX_HAVE_VERIFY_LOCKS)
             hpx::util::set_registered_locks_error_handler(
@@ -743,12 +748,17 @@ namespace hpx
                 // Initialize and start the HPX runtime.
                 LPROGRESS_ << "run_local: create runtime";
 
-                // Build and configure this runtime instance.
-                typedef hpx::runtime_impl runtime_type;
-
                 util::command_line_handling& cms =
                     resource::get_partitioner().get_command_line_switches();
-                std::unique_ptr<hpx::runtime> rt(new runtime_type(cms.rtcfg_));
+
+                // Build and configure this runtime instance.
+#if 1
+                using runtime_type = hpx::runtime_impl_distributed;
+#else
+                using runtime_type = hpx::runtime_impl_local;
+#endif
+                runtime_type* rt_impl = new runtime_type(cms.rtcfg_);
+                std::unique_ptr<hpx::runtime> rt(rt_impl);
 
                 result = run_or_start(blocking, std::move(rt),
                     cms, std::move(startup), std::move(shutdown));
@@ -812,12 +822,16 @@ namespace hpx
         if (std::abs(shutdown_timeout + 1.0) < 1e-16)
             shutdown_timeout = detail::get_option("hpx.shutdown_timeout", -1.0);
 
-        // tell main locality to start application exit, duplicated requests
-        // will be ignored
-        apply<components::server::runtime_support::shutdown_all_action>(
-            hpx::find_root_locality(), shutdown_timeout);
+        runtime* rt = get_runtime_ptr();
+        if (nullptr == rt) {
+            HPX_THROWS_IF(ec, invalid_status, "hpx::finalize",
+                "the runtime system is not active (did you already "
+                "call hpx::stop?)");
+            return -1;
+        }
 
-        //util::apex_finalize();
+        rt->finalize(shutdown_timeout);
+
         return 0;
     }
 
@@ -859,7 +873,7 @@ namespace hpx
 
         components::server::runtime_support* p =
             reinterpret_cast<components::server::runtime_support*>(
-                  get_runtime().get_runtime_support_lva());
+                  get_runtime_distributed().get_runtime_support_lva());
 
         if (nullptr == p) {
             HPX_THROWS_IF(ec, invalid_status, "hpx::disconnect",
@@ -886,7 +900,7 @@ namespace hpx
 
         components::server::runtime_support* p =
             reinterpret_cast<components::server::runtime_support*>(
-                  get_runtime().get_runtime_support_lva());
+                  get_runtime_distributed().get_runtime_support_lva());
 
         if (nullptr == p) {
             // the runtime system is not running, just terminate

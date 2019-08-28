@@ -4,20 +4,15 @@
 //  Distributed under the Boost Software License, Version 1.0. (See accompanying
 //  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-#if !defined(HPX_RUNTIME_RUNTIME_IMPL_HPP)
-#define HPX_RUNTIME_RUNTIME_IMPL_HPP
+#if !defined(HPX_RUNTIME_RUNTIME_IMPL_LOCAL_HPP)
+#define HPX_RUNTIME_RUNTIME_IMPL_LOCAL_HPP
 
 #include <hpx/config.hpp>
-#include <hpx/performance_counters/registry.hpp>
 #include <hpx/runtime.hpp>
-#include <hpx/runtime/applier/applier.hpp>
-#include <hpx/runtime/components/server/console_error_sink_singleton.hpp>
 #include <hpx/runtime/naming/resolver_client.hpp>
-#include <hpx/runtime/parcelset/locality.hpp>
-#include <hpx/runtime/parcelset/parcelhandler.hpp>
-#include <hpx/runtime/parcelset/parcelport.hpp>
 #include <hpx/runtime/threads/policies/callback_notifier.hpp>
 #include <hpx/runtime/threads/threadmanager.hpp>
+#include <hpx/topology.hpp> //! FIXME remove
 #include <hpx/util/generate_unique_ids.hpp>
 #include <hpx/util/io_service_pool.hpp>
 #include <hpx/util_fwd.hpp>
@@ -36,14 +31,24 @@
 
 namespace hpx
 {
+    namespace detail {
+        ///////////////////////////////////////////////////////////////////////
+        // There is no need to protect these global from thread concurrent
+        // access as they are access during early startup only.
+        extern std::list<startup_function_type> global_pre_startup_functions;
+        extern std::list<startup_function_type> global_startup_functions;
+        extern std::list<shutdown_function_type> global_pre_shutdown_functions;
+        extern std::list<shutdown_function_type> global_shutdown_functions;
+    }    // namespace detail
+
     /// The \a runtime class encapsulates the HPX runtime system in a simple to
     /// use way. It makes sure all required parts of the HPX runtime system are
     /// properly initialized.
-    class HPX_EXPORT runtime_impl : public runtime
+    class HPX_EXPORT runtime_impl_local : public runtime
     {
     private:
         // avoid warnings about usage of this in member initializer list
-        runtime_impl* This() { return this; }
+        runtime_impl_local* This() { return this; }
 
         //
         static void default_errorsink(std::string const&);
@@ -63,11 +68,11 @@ namespace hpx
         ///
         /// \param locality_mode  [in] This is the mode the given runtime
         ///                       instance should be executed in.
-        explicit runtime_impl(util::runtime_configuration & rtcfg);
+        explicit runtime_impl_local(util::runtime_configuration & rtcfg);
 
         /// \brief The destructor makes sure all HPX runtime services are
         ///        properly shut down before exiting.
-        ~runtime_impl();
+        ~runtime_impl_local();
 
         /// \brief Start the runtime system
         ///
@@ -121,6 +126,11 @@ namespace hpx
         ///                   with this parameter set to \a true to wait for
         ///                   all internal work to be completed.
         void stop(bool blocking = true) override;
+
+        int finalize(double shutdown_timeout) override
+        {
+            return 0;
+        }
 
         /// \brief Stop the runtime system, wait for termination
         ///
@@ -196,35 +206,6 @@ namespace hpx
         /// Rethrow any stored exception (to be called after stop())
         void rethrow_exception() override;
 
-        ///////////////////////////////////////////////////////////////////////
-        template <typename F>
-        components::server::console_error_dispatcher::sink_type
-        set_error_sink(F&& sink)
-        {
-            return components::server::get_error_dispatcher().
-                set_error_sink(std::forward<F>(sink));
-        }
-
-        ///////////////////////////////////////////////////////////////////////
-        /// \brief Allow access to the AGAS client instance used by the HPX
-        ///        runtime.
-        naming::resolver_client& get_agas_client() override
-        {
-            return agas_client_;
-        }
-
-        /// \brief Allow access to the parcel handler instance used by the HPX
-        ///        runtime.
-        parcelset::parcelhandler const& get_parcel_handler() const override
-        {
-            return parcel_handler_;
-        }
-
-        parcelset::parcelhandler& get_parcel_handler() override
-        {
-            return parcel_handler_;
-        }
-
         /// \brief Allow access to the thread manager instance used by the HPX
         ///        runtime.
         hpx::threads::threadmanager& get_thread_manager() override
@@ -232,46 +213,10 @@ namespace hpx
             return *thread_manager_;
         }
 
-        /// \brief Allow access to the applier instance used by the HPX
-        ///        runtime.
-        applier::applier& get_applier() override
-        {
-            return applier_;
-        }
-
-        /// \brief Allow access to the locality endpoints this runtime instance is
-        /// associated with.
-        ///
-        /// This accessor returns a reference to the locality endpoints this runtime
-        /// instance is associated with.
-        parcelset::endpoints_type const& endpoints() const override
-        {
-            return parcel_handler_.endpoints();
-        }
-
         /// \brief Returns a string of the locality endpoints (usable in debug output)
         std::string here() const override
         {
-            std::ostringstream strm;
-            strm << get_runtime().endpoints();
-            return strm.str();
-        }
-
-        std::uint64_t get_runtime_support_lva() const override
-        {
-            return reinterpret_cast<std::uint64_t>(runtime_support_.get());
-        }
-
-        std::uint64_t get_memory_lva() const override
-        {
-            return reinterpret_cast<std::uint64_t>(memory_.get());
-        }
-
-        naming::gid_type get_next_id(std::size_t count = 1) override;
-
-        util::unique_id_ranges& get_id_pool() override
-        {
-            return id_pool_;
+            return "/dev/null";
         }
 
         /// Add a function to be executed inside a HPX thread before hpx_main
@@ -318,11 +263,10 @@ namespace hpx
         ///             application (uninstall performance counters, etc.)
         void add_shutdown_function(shutdown_function_type f) override;
 
-        /// Access one of the internal thread pools (io_service instances)
-        /// HPX is using to perform specific tasks. The three possible values
-        /// for the argument \p name are "main_pool", "io_pool", "parcel_pool",
-        /// and "timer_pool". For any other argument value the function will
-        /// return zero.
+        /// Access one of the internal thread pools (io_service instances) HPX
+        /// is using to perform specific tasks. The three possible values for
+        /// the argument \p name are "main_pool", "io_pool" , and "timer_pool".
+        /// For any other argument value the function will return zero.
         hpx::util::io_service_pool* get_thread_pool(char const* name) override;
 
         /// Register an external OS-thread with HPX
@@ -365,13 +309,14 @@ namespace hpx
 #endif
         notification_policy_type notifier_;
         std::unique_ptr<hpx::threads::threadmanager> thread_manager_;
-        notification_policy_type parcel_handler_notifier_;
-        parcelset::parcelhandler parcel_handler_;
-        naming::resolver_client agas_client_;
-        applier::applier applier_;
 
         std::mutex mtx_;
         std::exception_ptr exception_;
+
+        std::list<startup_function_type> pre_startup_functions_;
+        std::list<startup_function_type> startup_functions_;
+        std::list<shutdown_function_type> pre_shutdown_functions_;
+        std::list<shutdown_function_type> shutdown_functions_;
     };
 }
 

@@ -66,7 +66,8 @@ void test_plain_argument(hpx::id_type const& id)
     }
 
     // send parcels
-    hpx::get_runtime().get_parcel_handler().put_parcels(std::move(parcels));
+    hpx::get_runtime_distributed().get_parcel_handler().put_parcels(
+        std::move(parcels));
 
     // verify all messages got actually sent to the correct locality
     hpx::wait_all(results);
@@ -110,7 +111,8 @@ void test_future_argument(hpx::id_type const& id)
     }
 
     // send parcels
-    hpx::get_runtime().get_parcel_handler().put_parcels(std::move(parcels));
+    hpx::get_runtime_distributed().get_parcel_handler().put_parcels(
+        std::move(parcels));
 
     // now make the futures ready
     for (hpx::lcos::local::promise<double>& arg : args)
@@ -167,7 +169,8 @@ void test_mixed_arguments(hpx::id_type const& id)
     }
 
     // send parcels
-    hpx::get_runtime().get_parcel_handler().put_parcels(std::move(parcels));
+    hpx::get_runtime_distributed().get_parcel_handler().put_parcels(
+        std::move(parcels));
 
     // now make the futures ready
     for (hpx::lcos::local::promise<double>& arg : args)

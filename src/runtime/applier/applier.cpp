@@ -9,6 +9,7 @@
 #include <hpx/assertion.hpp>
 #include <hpx/errors.hpp>
 #include <hpx/runtime.hpp>
+#include <hpx/runtime_distributed.hpp>
 #include <hpx/runtime/actions/continuation.hpp>
 #include <hpx/runtime/agas/interface.hpp>
 #include <hpx/runtime/applier/applier.hpp>
@@ -39,15 +40,6 @@ namespace hpx { namespace applier
         threads::thread_schedule_hint schedulehint,
         threads::thread_stacksize stacksize, error_code& ec)
     {
-        hpx::applier::applier* app = hpx::applier::get_applier_ptr();
-        if (nullptr == app)
-        {
-            HPX_THROWS_IF(ec, invalid_status,
-                "hpx::applier::register_thread_plain",
-                "global applier object is not accessible");
-            return threads::invalid_thread_id;
-        }
-
         util::thread_description d =
             desc ? desc : util::thread_description(func, "register_thread_plain");
 
@@ -55,7 +47,7 @@ namespace hpx { namespace applier
             schedulehint, threads::get_stack_size(stacksize));
 
         threads::thread_id_type id = threads::invalid_thread_id;
-        app->get_thread_manager().register_thread(data, id, state, run_now, ec);
+        get_runtime().get_thread_manager().register_thread(data, id, state, run_now, ec);
         return id;
     }
 
@@ -73,7 +65,7 @@ namespace hpx { namespace applier
         }
 
         threads::thread_id_type id = threads::invalid_thread_id;
-        app->get_thread_manager().register_thread(data, id, state, run_now, ec);
+        get_runtime().get_thread_manager().register_thread(data, id, state, run_now, ec);
         return id;
     }
 
@@ -99,7 +91,7 @@ namespace hpx { namespace applier
         threads::thread_init_data data(std::move(func), d, priority,
             schedulehint, threads::get_stack_size(stacksize));
 
-        app->get_thread_manager().register_work(data, state, ec);
+        get_runtime().get_thread_manager().register_work(data, state, ec);
     }
 
     void register_work_plain(
@@ -115,7 +107,7 @@ namespace hpx { namespace applier
             return;
         }
 
-        app->get_thread_manager().register_work(data, state, ec);
+        get_runtime().get_thread_manager().register_work(data, state, ec);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -215,12 +207,12 @@ namespace hpx { namespace applier
 
     applier& get_applier()
     {
-        return hpx::get_runtime().get_applier();
+        return hpx::get_runtime_distributed().get_applier();
     }
 
     applier* get_applier_ptr()
     {
-        return &hpx::get_runtime().get_applier();
+        return &hpx::get_runtime_distributed().get_applier();
     }
 }}
 

@@ -8,12 +8,7 @@
 #define HPX_RUNTIME_RUNTIME_JUN_10_2008_1012AM
 
 #include <hpx/config.hpp>
-#include <hpx/lcos/local/spinlock.hpp>
 #include <hpx/performance_counters/counters.hpp>
-#include <hpx/runtime/applier_fwd.hpp>
-#include <hpx/runtime/components/component_type.hpp>
-#include <hpx/runtime/parcelset/locality.hpp>
-#include <hpx/runtime/parcelset_fwd.hpp>
 #include <hpx/runtime/runtime_mode.hpp>
 #include <hpx/runtime/shutdown_function.hpp>
 #include <hpx/runtime/startup_function.hpp>
@@ -64,11 +59,7 @@ namespace hpx
         class registry;
     }
 
-    int pre_main(runtime_mode);
-
     ///////////////////////////////////////////////////////////////////////////
-    class HPX_EXPORT runtime_impl;
-
     class HPX_EXPORT runtime
     {
     public:
@@ -181,30 +172,16 @@ namespace hpx
         virtual int suspend() = 0;
         virtual int resume() = 0;
 
-        virtual parcelset::parcelhandler& get_parcel_handler() = 0;
-        virtual parcelset::parcelhandler const& get_parcel_handler() const = 0;
+        virtual int finalize(double shutdown_timeout) = 0;
 
         virtual threads::threadmanager& get_thread_manager() = 0;
 
-        virtual naming::resolver_client& get_agas_client() = 0;
-
-        virtual parcelset::endpoints_type const& endpoints() const = 0;
         virtual std::string here() const = 0;
-
-        virtual applier::applier& get_applier() = 0;
-
-        virtual std::uint64_t get_runtime_support_lva() const = 0;
-
-        virtual std::uint64_t get_memory_lva() const = 0;
 
         virtual bool report_error(std::size_t num_thread,
             std::exception_ptr const& e) = 0;
 
         virtual bool report_error(std::exception_ptr const& e) = 0;
-
-        virtual naming::gid_type get_next_id(std::size_t count = 1) = 0;
-
-        virtual util::unique_id_ranges& get_id_pool() = 0;
 
         virtual void add_pre_startup_function(startup_function_type f) = 0;
 
@@ -289,16 +266,6 @@ namespace hpx
         // stop periodic evaluation of counters during shutdown
         void stop_evaluating_counters();
 
-        void register_message_handler(char const* message_handler_type,
-            char const* action, error_code& ec = throws);
-        parcelset::policies::message_handler* create_message_handler(
-            char const* message_handler_type, char const* action,
-            parcelset::parcelport* pp, std::size_t num_messages,
-            std::size_t interval, error_code& ec = throws);
-        serialization::binary_filter* create_binary_filter(
-            char const* binary_filter_type, bool compress,
-            serialization::binary_filter* next_filter, error_code& ec = throws);
-
         notification_policy_type::on_startstop_type on_start_func() const;
         notification_policy_type::on_startstop_type on_stop_func() const;
         notification_policy_type::on_error_type on_error_func() const;
@@ -342,9 +309,6 @@ namespace hpx
         used_cores_map_type used_cores_map_;
 
         std::atomic<state> state_;
-
-        std::unique_ptr<components::server::memory> memory_;
-        std::unique_ptr<components::server::runtime_support> runtime_support_;
 
         // support tieing in external functions to be called for thread events
         notification_policy_type::on_startstop_type on_start_func_;

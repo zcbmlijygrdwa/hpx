@@ -11,6 +11,8 @@
 #include <hpx/errors.hpp>
 #include <hpx/lcos/barrier.hpp>
 #include <hpx/lcos/detail/barrier_node.hpp>
+#include <hpx/runtime.hpp>
+#include <hpx/runtime_distributed.hpp>
 #include <hpx/runtime/agas/interface.hpp>
 #include <hpx/runtime/applier/applier.hpp>
 #include <hpx/runtime/components/runtime_support.hpp>
@@ -71,11 +73,11 @@ extern std::vector<util::tuple<char const*, char const*> >
 
 static void register_message_handlers()
 {
-    runtime& rt = get_runtime();
+    runtime_distributed& rtd = get_runtime_distributed();
     for (auto const& t : message_handler_registrations)
     {
         error_code ec(lightweight);
-        rt.register_message_handler(util::get<0>(t), util::get<1>(t), ec);
+        rtd.register_message_handler(util::get<0>(t), util::get<1>(t), ec);
     }
     lbt_ << "(3rd stage) pre_main: registered message handlers";
 }
