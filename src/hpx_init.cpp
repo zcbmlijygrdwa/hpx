@@ -31,7 +31,7 @@
 #include <hpx/runtime/startup_function.hpp>
 #include <hpx/runtime/threads/policies/schedulers.hpp>
 #include <hpx/runtime_impl_local.hpp>
-#include <hpx/runtime_impl_distributed.hpp>
+#include <hpx/runtime_distributed.hpp>
 #include <hpx/testing.hpp>
 #include <hpx/util/apex.hpp>
 #include <hpx/util/bind_action.hpp>
@@ -753,7 +753,7 @@ namespace hpx
 
                 // Build and configure this runtime instance.
 #if 1
-                using runtime_type = hpx::runtime_impl_distributed;
+                using runtime_type = hpx::runtime_distributed;
 #else
                 using runtime_type = hpx::runtime_impl_local;
 #endif
