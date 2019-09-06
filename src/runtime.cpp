@@ -9,6 +9,8 @@
 #include <hpx/concurrency/thread_name.hpp>
 #include <hpx/custom_exception_info.hpp>
 #include <hpx/errors.hpp>
+#include <hpx/functional.hpp>
+#include <hpx/lcos/latch.hpp>
 #include <hpx/logging.hpp>
 #include <hpx/performance_counters/counter_creators.hpp>
 #include <hpx/performance_counters/counters.hpp>
@@ -17,43 +19,52 @@
 #include <hpx/runtime.hpp>
 #include <hpx/runtime/config_entry.hpp>
 #include <hpx/runtime/launch_policy.hpp>
+#include <hpx/runtime/shutdown_function.hpp>
+#include <hpx/runtime/startup_function.hpp>
 #include <hpx/runtime/thread_hooks.hpp>
 #include <hpx/runtime/threads/coroutines/coroutine.hpp>
+#include <hpx/runtime/threads/coroutines/detail/context_impl.hpp>
 #include <hpx/runtime/threads/policies/scheduler_mode.hpp>
+#include <hpx/runtime/threads/scoped_background_timer.hpp>
 #include <hpx/runtime/threads/threadmanager.hpp>
-#include <hpx/topology/topology.hpp>
 #include <hpx/state.hpp>
+#include <hpx/thread_support/set_thread_name.hpp>
 #include <hpx/timing/high_resolution_clock.hpp>
+#include <hpx/topology/topology.hpp>
+#include <hpx/util/apex.hpp>
 #include <hpx/util/backtrace.hpp>
 #include <hpx/util/command_line_handling.hpp>
 #include <hpx/util/debugging.hpp>
 #include <hpx/util/query_counters.hpp>
+#include <hpx/util/safe_lexical_cast.hpp>
 #include <hpx/util/static_reinit.hpp>
 #include <hpx/util/thread_mapper.hpp>
+#include <hpx/util/yield_while.hpp>
 #include <hpx/version.hpp>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
+#include <functional>
 #include <iostream>
+#include <list>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
-
-#if defined(_WIN64) && defined(_DEBUG) && !defined(HPX_HAVE_FIBER_BASED_COROUTINES)
-#include <io.h>
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 // Make sure the system gets properly shut down while handling Ctrl-C and other
 // system signals
 #if defined(HPX_WINDOWS)
 
-namespace hpx
-{
+namespace hpx {
     ///////////////////////////////////////////////////////////////////////////
     void handle_termination(char const* reason)
     {
@@ -69,13 +80,14 @@ namespace hpx
                 << "{stack-trace}: " << hpx::util::trace() << "\n"
 #endif
                 << "{what}: " << (reason ? reason : "Unknown reason") << "\n"
-                << full_build_string();           // add full build information
+                << full_build_string();    // add full build information
         }
     }
 
     HPX_EXPORT BOOL WINAPI termination_handler(DWORD ctrl_type)
     {
-        switch (ctrl_type) {
+        switch (ctrl_type)
+        {
         case CTRL_C_EVENT:
             handle_termination("Ctrl-C");
             return TRUE;
@@ -101,7 +113,7 @@ namespace hpx
         }
         return FALSE;
     }
-}
+}    // namespace hpx
 
 #else
 
@@ -109,8 +121,7 @@ namespace hpx
 #include <stdlib.h>
 #include <string.h>
 
-namespace hpx
-{
+namespace hpx {
     ///////////////////////////////////////////////////////////////////////////
     HPX_EXPORT HPX_NORETURN void termination_handler(int signum)
     {
@@ -128,17 +139,16 @@ namespace hpx
                 << "{stack-trace}: " << hpx::util::trace() << "\n"
 #endif
                 << "{what}: " << (reason ? reason : "Unknown signal") << "\n"
-                << full_build_string();           // add full build information
+                << full_build_string();    // add full build information
         }
         std::abort();
     }
-}
+}    // namespace hpx
 
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
-namespace hpx
-{
+namespace hpx {
     ///////////////////////////////////////////////////////////////////////////
     HPX_EXPORT void HPX_CDECL new_handler()
     {
@@ -157,24 +167,21 @@ namespace hpx
         sigemptyset(&new_action.sa_mask);
         new_action.sa_flags = 0;
 
-        sigaction(SIGINT, &new_action, nullptr);  // Interrupted
-        sigaction(SIGBUS, &new_action, nullptr);  // Bus error
-        sigaction(SIGFPE, &new_action, nullptr);  // Floating point exception
-        sigaction(SIGILL, &new_action, nullptr);  // Illegal instruction
-        sigaction(SIGPIPE, &new_action, nullptr); // Bad pipe
-        sigaction(SIGSEGV, &new_action, nullptr); // Segmentation fault
-        sigaction(SIGSYS, &new_action, nullptr);  // Bad syscall
+        sigaction(SIGINT, &new_action, nullptr);     // Interrupted
+        sigaction(SIGBUS, &new_action, nullptr);     // Bus error
+        sigaction(SIGFPE, &new_action, nullptr);     // Floating point exception
+        sigaction(SIGILL, &new_action, nullptr);     // Illegal instruction
+        sigaction(SIGPIPE, &new_action, nullptr);    // Bad pipe
+        sigaction(SIGSEGV, &new_action, nullptr);    // Segmentation fault
+        sigaction(SIGSYS, &new_action, nullptr);     // Bad syscall
 #endif
 
         std::set_new_handler(hpx::new_handler);
     }
 
-
     ///////////////////////////////////////////////////////////////////////////
-    namespace strings
-    {
-        char const* const runtime_mode_names[] =
-        {
+    namespace strings {
+        char const* const runtime_mode_names[] = {
             "invalid",    // -1
             "console",    // 0
             "worker",     // 1
@@ -187,37 +194,36 @@ namespace hpx
     {
         if (state < runtime_mode_invalid || state >= runtime_mode_last)
             return "invalid (value out of bounds)";
-        return strings::runtime_mode_names[state+1];
+        return strings::runtime_mode_names[state + 1];
     }
 
     runtime_mode get_runtime_mode_from_name(std::string const& mode)
     {
-        for (std::size_t i = 0; i < runtime_mode_last; ++i) {
+        for (std::size_t i = 0; i < runtime_mode_last; ++i)
+        {
             if (mode == strings::runtime_mode_names[i])
-                return static_cast<runtime_mode>(i-1);
+                return static_cast<runtime_mode>(i - 1);
         }
         return runtime_mode_invalid;
     }
 
-    namespace strings
-    {
-        char const* const runtime_state_names[] =
-        {
-            "state_invalid",      // -1
-            "state_initialized",  // 0
-            "state_pre_startup",  // 1
-            "state_startup",      // 2
-            "state_pre_main",     // 3
-            "state_starting",     // 4
-            "state_running",      // 5
-            "state_suspended",    // 6
-            "state_pre_sleep",    // 7
-            "state_sleeping",     // 8
-            "state_pre_shutdown", // 9
-            "state_shutdown",     // 10
-            "state_stopping",     // 11
-            "state_terminating",  // 12
-            "state_stopped"       // 13
+    namespace strings {
+        char const* const runtime_state_names[] = {
+            "state_invalid",         // -1
+            "state_initialized",     // 0
+            "state_pre_startup",     // 1
+            "state_startup",         // 2
+            "state_pre_main",        // 3
+            "state_starting",        // 4
+            "state_running",         // 5
+            "state_suspended",       // 6
+            "state_pre_sleep",       // 7
+            "state_sleeping",        // 8
+            "state_pre_shutdown",    // 9
+            "state_shutdown",        // 10
+            "state_stopping",        // 11
+            "state_terminating",     // 12
+            "state_stopped"          // 13
         };
     }
 
@@ -225,30 +231,31 @@ namespace hpx
     {
         if (st < state_invalid || st >= last_valid_runtime_state)
             return "invalid (value out of bounds)";
-        return strings::runtime_state_names[st+1];
+        return strings::runtime_state_names[st + 1];
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    threads::policies::callback_notifier::on_startstop_type global_on_start_func;
+    threads::policies::callback_notifier::on_startstop_type
+        global_on_start_func;
     threads::policies::callback_notifier::on_startstop_type global_on_stop_func;
     threads::policies::callback_notifier::on_error_type global_on_error_func;
 
     ///////////////////////////////////////////////////////////////////////////
-    runtime::runtime(util::runtime_configuration & rtcfg)
-      : ini_(rtcfg),
-        instance_number_(++instance_number_counter_),
-        thread_support_(new util::thread_mapper),
-        topology_(resource::get_partitioner().get_topology()),
-        state_(state_invalid),
-        on_start_func_(global_on_start_func),
-        on_stop_func_(global_on_stop_func),
-        on_error_func_(global_on_error_func)
+    runtime::runtime(util::runtime_configuration& rtcfg)
+      : ini_(rtcfg)
+      , instance_number_(++instance_number_counter_)
+      , thread_support_(new util::thread_mapper)
+      , topology_(resource::get_partitioner().get_topology())
+      , state_(state_invalid)
+      , on_start_func_(global_on_start_func)
+      , on_stop_func_(global_on_stop_func)
+      , on_error_func_(global_on_error_func)
     {
         LPROGRESS_;
 
         // initialize our TSS
         runtime::init_tss();
-        util::reinit_construct();       // call only after TLS was initialized
+        util::reinit_construct();    // call only after TLS was initialized
 
         counters_ = std::make_shared<performance_counters::registry>();
     }
@@ -280,7 +287,7 @@ namespace hpx
             static HPX_NATIVE_TLS std::uint64_t uptime;
             return uptime;
         }
-    }
+    }    // namespace
 
     void runtime::init_tss()
     {
@@ -356,8 +363,8 @@ namespace hpx
             active_counters_->reinit_counters(reset, ec);
     }
 
-    void runtime::evaluate_active_counters(bool reset,
-        char const* description, error_code& ec)
+    void runtime::evaluate_active_counters(
+        bool reset, char const* description, error_code& ec)
     {
         if (active_counters_.get())
             active_counters_->evaluate_counters(reset, description, ec);
@@ -373,273 +380,300 @@ namespace hpx
     ///        instance
     void runtime::register_counter_types()
     {
-        performance_counters::generic_counter_type_data statistic_counter_types[] =
-        {
-            // averaging counter
-            { "/statistics/average", performance_counters::counter_aggregating,
-              "returns the averaged value of its base counter over "
-              "an arbitrary time line; pass required base counter as the instance "
-              "name: /statistics{<base_counter_name>}/average",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::statistics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
+        performance_counters::generic_counter_type_data
+            statistic_counter_types[] = {// averaging counter
+                {"/statistics/average",
+                    performance_counters::counter_aggregating,
+                    "returns the averaged value of its base counter over "
+                    "an arbitrary time line; pass required base counter as the "
+                    "instance "
+                    "name: /statistics{<base_counter_name>}/average",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::statistics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // stddev counter
-            { "/statistics/stddev", performance_counters::counter_aggregating,
-              "returns the standard deviation value of its base counter over "
-              "an arbitrary time line; pass required base counter as the instance "
-              "name: /statistics{<base_counter_name>}/stddev",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::statistics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
+                // stddev counter
+                {"/statistics/stddev",
+                    performance_counters::counter_aggregating,
+                    "returns the standard deviation value of its base counter "
+                    "over "
+                    "an arbitrary time line; pass required base counter as the "
+                    "instance "
+                    "name: /statistics{<base_counter_name>}/stddev",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::statistics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // rolling_averaging counter
-            { "/statistics/rolling_average", performance_counters::counter_aggregating,
-              "returns the rolling average value of its base counter over "
-              "an arbitrary time line; pass required base counter as the instance "
-              "name: /statistics{<base_counter_name>}/rolling_averaging",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::statistics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
+                // rolling_averaging counter
+                {"/statistics/rolling_average",
+                    performance_counters::counter_aggregating,
+                    "returns the rolling average value of its base counter "
+                    "over "
+                    "an arbitrary time line; pass required base counter as the "
+                    "instance "
+                    "name: /statistics{<base_counter_name>}/rolling_averaging",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::statistics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // rolling stddev counter
-            { "/statistics/rolling_stddev", performance_counters::counter_aggregating,
-              "returns the rolling standard deviation value of its base counter over "
-              "an arbitrary time line; pass required base counter as the instance "
-              "name: /statistics{<base_counter_name>}/rolling_stddev",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::statistics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
+                // rolling stddev counter
+                {"/statistics/rolling_stddev",
+                    performance_counters::counter_aggregating,
+                    "returns the rolling standard deviation value of its base "
+                    "counter over "
+                    "an arbitrary time line; pass required base counter as the "
+                    "instance "
+                    "name: /statistics{<base_counter_name>}/rolling_stddev",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::statistics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // median counter
-            { "/statistics/median", performance_counters::counter_aggregating,
-              "returns the median value of its base counter over "
-              "an arbitrary time line; pass required base counter as the instance "
-              "name: /statistics{<base_counter_name>}/median",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::statistics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
+                // median counter
+                {"/statistics/median",
+                    performance_counters::counter_aggregating,
+                    "returns the median value of its base counter over "
+                    "an arbitrary time line; pass required base counter as the "
+                    "instance "
+                    "name: /statistics{<base_counter_name>}/median",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::statistics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // max counter
-            { "/statistics/max", performance_counters::counter_aggregating,
-              "returns the maximum value of its base counter over "
-              "an arbitrary time line; pass required base counter as the instance "
-              "name: /statistics{<base_counter_name>}/max",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::statistics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
+                // max counter
+                {"/statistics/max", performance_counters::counter_aggregating,
+                    "returns the maximum value of its base counter over "
+                    "an arbitrary time line; pass required base counter as the "
+                    "instance "
+                    "name: /statistics{<base_counter_name>}/max",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::statistics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // min counter
-            { "/statistics/min", performance_counters::counter_aggregating,
-              "returns the minimum value of its base counter over "
-              "an arbitrary time line; pass required base counter as the instance "
-              "name: /statistics{<base_counter_name>}/min",
-              HPX_PERFORMANCE_COUNTER_V1,
-               &performance_counters::detail::statistics_counter_creator,
-               &performance_counters::default_counter_discoverer,
-              ""
-            },
+                // min counter
+                {"/statistics/min", performance_counters::counter_aggregating,
+                    "returns the minimum value of its base counter over "
+                    "an arbitrary time line; pass required base counter as the "
+                    "instance "
+                    "name: /statistics{<base_counter_name>}/min",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::statistics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // rolling max counter
-            { "/statistics/rolling_max", performance_counters::counter_aggregating,
-              "returns the rolling maximum value of its base counter over "
-              "an arbitrary time line; pass required base counter as the instance "
-              "name: /statistics{<base_counter_name>}/rolling_max",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::statistics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
+                // rolling max counter
+                {"/statistics/rolling_max",
+                    performance_counters::counter_aggregating,
+                    "returns the rolling maximum value of its base counter "
+                    "over "
+                    "an arbitrary time line; pass required base counter as the "
+                    "instance "
+                    "name: /statistics{<base_counter_name>}/rolling_max",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::statistics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // rolling min counter
-            { "/statistics/rolling_min", performance_counters::counter_aggregating,
-              "returns the rolling minimum value of its base counter over "
-              "an arbitrary time line; pass required base counter as the instance "
-              "name: /statistics{<base_counter_name>}/rolling_min",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::statistics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
+                // rolling min counter
+                {"/statistics/rolling_min",
+                    performance_counters::counter_aggregating,
+                    "returns the rolling minimum value of its base counter "
+                    "over "
+                    "an arbitrary time line; pass required base counter as the "
+                    "instance "
+                    "name: /statistics{<base_counter_name>}/rolling_min",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::statistics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // uptime counters
-            { "/runtime/uptime", performance_counters::counter_elapsed_time,
-              "returns the up time of the runtime instance for the referenced "
-              "locality",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::uptime_counter_creator,
-              &performance_counters::locality_counter_discoverer,
-              "s"    // unit of measure is seconds
-            },
+                // uptime counters
+                {
+                    "/runtime/uptime",
+                    performance_counters::counter_elapsed_time,
+                    "returns the up time of the runtime instance for the "
+                    "referenced "
+                    "locality",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::uptime_counter_creator,
+                    &performance_counters::locality_counter_discoverer,
+                    "s"    // unit of measure is seconds
+                },
 
-            // component instance counters
-            { "/runtime/count/component", performance_counters::counter_raw,
-              "returns the number of component instances currently alive on "
-              "this locality (the component type has to be specified as the "
-              "counter parameter)",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::component_instance_counter_creator,
-              &performance_counters::locality_counter_discoverer,
-              ""
-            },
+                // component instance counters
+                {"/runtime/count/component", performance_counters::counter_raw,
+                    "returns the number of component instances currently alive "
+                    "on "
+                    "this locality (the component type has to be specified as "
+                    "the "
+                    "counter parameter)",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::
+                        component_instance_counter_creator,
+                    &performance_counters::locality_counter_discoverer, ""},
 
-            // action invocation counters
-            { "/runtime/count/action-invocation", performance_counters::counter_raw,
-              "returns the number of (local) invocations of a specific action "
-              "on this locality (the action type has to be specified as the "
-              "counter parameter)",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::local_action_invocation_counter_creator,
-              &performance_counters::local_action_invocation_counter_discoverer,
-              ""
-            },
+                // action invocation counters
+                {"/runtime/count/action-invocation",
+                    performance_counters::counter_raw,
+                    "returns the number of (local) invocations of a specific "
+                    "action "
+                    "on this locality (the action type has to be specified as "
+                    "the "
+                    "counter parameter)",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::
+                        local_action_invocation_counter_creator,
+                    &performance_counters::
+                        local_action_invocation_counter_discoverer,
+                    ""},
 
-            { "/runtime/count/remote-action-invocation",
-              performance_counters::counter_raw,
-              "returns the number of (remote) invocations of a specific action "
-              "on this locality (the action type has to be specified as the "
-              "counter parameter)",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::remote_action_invocation_counter_creator,
-              &performance_counters::remote_action_invocation_counter_discoverer,
-              ""
-            }
-        };
-        performance_counters::install_counter_types(
-            statistic_counter_types,
-            sizeof(statistic_counter_types)/sizeof(statistic_counter_types[0]));
+                {"/runtime/count/remote-action-invocation",
+                    performance_counters::counter_raw,
+                    "returns the number of (remote) invocations of a specific "
+                    "action "
+                    "on this locality (the action type has to be specified as "
+                    "the "
+                    "counter parameter)",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::
+                        remote_action_invocation_counter_creator,
+                    &performance_counters::
+                        remote_action_invocation_counter_discoverer,
+                    ""}};
+        performance_counters::install_counter_types(statistic_counter_types,
+            sizeof(statistic_counter_types) /
+                sizeof(statistic_counter_types[0]));
 
-        performance_counters::generic_counter_type_data arithmetic_counter_types[] =
-        {
-            // adding counter
-            { "/arithmetics/add", performance_counters::counter_aggregating,
-              "returns the sum of the values of the specified base counters; "
-              "pass required base counters as the parameters: "
-              "/arithmetics/add@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
-            // minus counter
-            { "/arithmetics/subtract", performance_counters::counter_aggregating,
-              "returns the difference of the values of the specified base counters; "
-              "pass the required base counters as the parameters: "
-              "/arithmetics/subtract@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
-            // multiply counter
-            { "/arithmetics/multiply", performance_counters::counter_aggregating,
-              "returns the product of the values of the specified base counters; "
-              "pass the required base counters as the parameters: "
-              "/arithmetics/multiply@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
-            // divide counter
-            { "/arithmetics/divide", performance_counters::counter_aggregating,
-              "returns the result of division of the values of the specified "
-              "base counters; pass the required base counters as the parameters: "
-              "/arithmetics/divide@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
+        performance_counters::generic_counter_type_data
+            arithmetic_counter_types[] = {
+                // adding counter
+                {"/arithmetics/add", performance_counters::counter_aggregating,
+                    "returns the sum of the values of the specified base "
+                    "counters; "
+                    "pass required base counters as the parameters: "
+                    "/arithmetics/"
+                    "add@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::arithmetics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
+                // minus counter
+                {"/arithmetics/subtract",
+                    performance_counters::counter_aggregating,
+                    "returns the difference of the values of the specified "
+                    "base counters; "
+                    "pass the required base counters as the parameters: "
+                    "/arithmetics/"
+                    "subtract@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::arithmetics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
+                // multiply counter
+                {"/arithmetics/multiply",
+                    performance_counters::counter_aggregating,
+                    "returns the product of the values of the specified base "
+                    "counters; "
+                    "pass the required base counters as the parameters: "
+                    "/arithmetics/"
+                    "multiply@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::arithmetics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
+                // divide counter
+                {"/arithmetics/divide",
+                    performance_counters::counter_aggregating,
+                    "returns the result of division of the values of the "
+                    "specified "
+                    "base counters; pass the required base counters as the "
+                    "parameters: "
+                    "/arithmetics/"
+                    "divide@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::arithmetics_counter_creator,
+                    &performance_counters::default_counter_discoverer, ""},
 
-            // arithmetics mean counter
-            { "/arithmetics/mean", performance_counters::counter_aggregating,
-              "returns the average value of all values of the specified "
-              "base counters; pass the required base counters as the parameters: "
-              "/arithmetics/mean@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_extended_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
-            // arithmetics variance counter
-            { "/arithmetics/variance", performance_counters::counter_aggregating,
-              "returns the standard deviation of all values of the specified "
-              "base counters; pass the required base counters as the parameters: "
-              "/arithmetics/variance@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_extended_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
-            // arithmetics median counter
-            { "/arithmetics/median", performance_counters::counter_aggregating,
-              "returns the median of all values of the specified "
-              "base counters; pass the required base counters as the parameters: "
-              "/arithmetics/median@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_extended_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
-            // arithmetics min counter
-            { "/arithmetics/min", performance_counters::counter_aggregating,
-              "returns the minimum value of all values of the specified "
-              "base counters; pass the required base counters as the parameters: "
-              "/arithmetics/min@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_extended_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
-            // arithmetics max counter
-            { "/arithmetics/max", performance_counters::counter_aggregating,
-              "returns the maximum value of all values of the specified "
-              "base counters; pass the required base counters as the parameters: "
-              "/arithmetics/max@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_extended_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
-            // arithmetics count counter
-            { "/arithmetics/count", performance_counters::counter_aggregating,
-              "returns the count value of all values of the specified "
-              "base counters; pass the required base counters as the parameters: "
-              "/arithmetics/count@<base_counter_name1>,<base_counter_name2>",
-              HPX_PERFORMANCE_COUNTER_V1,
-              &performance_counters::detail::arithmetics_counter_extended_creator,
-              &performance_counters::default_counter_discoverer,
-              ""
-            },
-        };
-        performance_counters::install_counter_types(
-            arithmetic_counter_types,
-            sizeof(arithmetic_counter_types)/sizeof(arithmetic_counter_types[0]));
+                // arithmetics mean counter
+                {"/arithmetics/mean", performance_counters::counter_aggregating,
+                    "returns the average value of all values of the specified "
+                    "base counters; pass the required base counters as the "
+                    "parameters: "
+                    "/arithmetics/"
+                    "mean@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::
+                        arithmetics_counter_extended_creator,
+                    &performance_counters::default_counter_discoverer, ""},
+                // arithmetics variance counter
+                {"/arithmetics/variance",
+                    performance_counters::counter_aggregating,
+                    "returns the standard deviation of all values of the "
+                    "specified "
+                    "base counters; pass the required base counters as the "
+                    "parameters: "
+                    "/arithmetics/"
+                    "variance@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::
+                        arithmetics_counter_extended_creator,
+                    &performance_counters::default_counter_discoverer, ""},
+                // arithmetics median counter
+                {"/arithmetics/median",
+                    performance_counters::counter_aggregating,
+                    "returns the median of all values of the specified "
+                    "base counters; pass the required base counters as the "
+                    "parameters: "
+                    "/arithmetics/"
+                    "median@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::
+                        arithmetics_counter_extended_creator,
+                    &performance_counters::default_counter_discoverer, ""},
+                // arithmetics min counter
+                {"/arithmetics/min", performance_counters::counter_aggregating,
+                    "returns the minimum value of all values of the specified "
+                    "base counters; pass the required base counters as the "
+                    "parameters: "
+                    "/arithmetics/"
+                    "min@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::
+                        arithmetics_counter_extended_creator,
+                    &performance_counters::default_counter_discoverer, ""},
+                // arithmetics max counter
+                {"/arithmetics/max", performance_counters::counter_aggregating,
+                    "returns the maximum value of all values of the specified "
+                    "base counters; pass the required base counters as the "
+                    "parameters: "
+                    "/arithmetics/"
+                    "max@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::
+                        arithmetics_counter_extended_creator,
+                    &performance_counters::default_counter_discoverer, ""},
+                // arithmetics count counter
+                {"/arithmetics/count",
+                    performance_counters::counter_aggregating,
+                    "returns the count value of all values of the specified "
+                    "base counters; pass the required base counters as the "
+                    "parameters: "
+                    "/arithmetics/"
+                    "count@<base_counter_name1>,<base_counter_name2>",
+                    HPX_PERFORMANCE_COUNTER_V1,
+                    &performance_counters::detail::
+                        arithmetics_counter_extended_creator,
+                    &performance_counters::default_counter_discoverer, ""},
+            };
+        performance_counters::install_counter_types(arithmetic_counter_types,
+            sizeof(arithmetic_counter_types) /
+                sizeof(arithmetic_counter_types[0]));
     }
 
-    std::uint32_t runtime::assign_cores(std::string const& locality_basename,
-        std::uint32_t cores_needed)
+    std::uint32_t runtime::assign_cores(
+        std::string const& locality_basename, std::uint32_t cores_needed)
     {
         std::lock_guard<std::mutex> l(mtx_);
 
-        used_cores_map_type::iterator it = used_cores_map_.find(locality_basename);
+        used_cores_map_type::iterator it =
+            used_cores_map_.find(locality_basename);
         if (it == used_cores_map_.end())
         {
-            used_cores_map_.insert(
-                used_cores_map_type::value_type(locality_basename, cores_needed));
+            used_cores_map_.insert(used_cores_map_type::value_type(
+                locality_basename, cores_needed));
             return 0;
         }
 
@@ -661,19 +695,19 @@ namespace hpx
 
     ///////////////////////////////////////////////////////////////////////////
     threads::policies::callback_notifier::on_startstop_type
-        runtime::on_start_func() const
+    runtime::on_start_func() const
     {
         return on_start_func_;
     }
 
     threads::policies::callback_notifier::on_startstop_type
-        runtime::on_stop_func() const
+    runtime::on_stop_func() const
     {
         return on_stop_func_;
     }
 
-    threads::policies::callback_notifier::on_error_type
-        runtime::on_error_func() const
+    threads::policies::callback_notifier::on_error_type runtime::on_error_func()
+        const
     {
         return on_error_func_;
     }
@@ -698,19 +732,17 @@ namespace hpx
         return newf;
     }
 
-    threads::policies::callback_notifier::on_error_type
-    runtime::on_error_func(
+    threads::policies::callback_notifier::on_error_type runtime::on_error_func(
         threads::policies::callback_notifier::on_error_type&& f)
     {
-        threads::policies::callback_notifier::on_error_type newf =
-            std::move(f);
+        threads::policies::callback_notifier::on_error_type newf = std::move(f);
         std::swap(on_error_func_, newf);
         return newf;
     }
 
     ///////////////////////////////////////////////////////////////////////////
     threads::policies::callback_notifier::on_startstop_type
-        get_thread_on_start_func()
+    get_thread_on_start_func()
     {
         runtime* rt = get_runtime_ptr();
         if (nullptr != rt)
@@ -724,7 +756,7 @@ namespace hpx
     }
 
     threads::policies::callback_notifier::on_startstop_type
-        get_thread_on_stop_func()
+    get_thread_on_stop_func()
     {
         runtime* rt = get_runtime_ptr();
         if (nullptr != rt)
@@ -738,7 +770,7 @@ namespace hpx
     }
 
     threads::policies::callback_notifier::on_error_type
-        get_thread_on_error_func()
+    get_thread_on_error_func()
     {
         runtime* rt = get_runtime_ptr();
         if (nullptr != rt)
@@ -793,8 +825,7 @@ namespace hpx
             return rt->on_error_func(std::move(f));
         }
 
-        threads::policies::callback_notifier::on_error_type newf =
-            std::move(f);
+        threads::policies::callback_notifier::on_error_type newf = std::move(f);
         std::swap(global_on_error_func, newf);
         return newf;
     }
@@ -815,7 +846,8 @@ namespace hpx
     std::string get_thread_name()
     {
         std::string& thread_name = detail::thread_name();
-        if (thread_name.empty()) return "<unkown>";
+        if (thread_name.empty())
+            return "<unkown>";
         return thread_name;
     }
 
@@ -887,7 +919,8 @@ namespace hpx
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    std::string get_config_entry(std::string const& key, std::string const& dflt)
+    std::string get_config_entry(
+        std::string const& key, std::string const& dflt)
     {
         //! FIXME runtime_configuration should probs be a member of
         // hpx::runtime only, not command_line_handling
@@ -901,7 +934,8 @@ namespace hpx
             return dflt;
         }
         return resource::get_partitioner()
-            .get_command_line_switches().rtcfg_.get_entry(key, dflt);
+            .get_command_line_switches()
+            .rtcfg_.get_entry(key, dflt);
     }
 
     std::string get_config_entry(std::string const& key, std::size_t dflt)
@@ -915,7 +949,8 @@ namespace hpx
             return std::to_string(dflt);
         }
         return resource::get_partitioner()
-            .get_command_line_switches().rtcfg_.get_entry(key, dflt);
+            .get_command_line_switches()
+            .rtcfg_.get_entry(key, dflt);
     }
 
     // set entries
@@ -929,7 +964,8 @@ namespace hpx
         if (resource::is_partitioner_valid())
         {
             resource::get_partitioner()
-                .get_command_line_switches().rtcfg_.add_entry(key, value);
+                .get_command_line_switches()
+                .rtcfg_.add_entry(key, value);
             return;
         }
     }
@@ -945,8 +981,8 @@ namespace hpx
         if (resource::is_partitioner_valid())
         {
             resource::get_partitioner()
-                .get_command_line_switches().rtcfg_.
-                    add_entry(key, std::to_string(value));
+                .get_command_line_switches()
+                .rtcfg_.add_entry(key, std::to_string(value));
             return;
         }
     }
@@ -976,9 +1012,7 @@ namespace hpx
         runtime* rt = get_runtime_ptr();
         if (nullptr == rt)
         {
-            HPX_THROW_EXCEPTION(
-                invalid_status,
-                "hpx::get_os_thread_count()",
+            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_os_thread_count()",
                 "the runtime system has not been initialized yet");
             return std::size_t(0);
         }
@@ -990,8 +1024,7 @@ namespace hpx
         runtime* rt = get_runtime_ptr();
         if (nullptr == rt)
         {
-            HPX_THROW_EXCEPTION(
-                invalid_status,
+            HPX_THROW_EXCEPTION(invalid_status,
                 "hpx::get_os_thread_count(exec)",
                 "the runtime system has not been initialized yet");
             return std::size_t(0);
@@ -1020,8 +1053,7 @@ namespace hpx
         runtime* rt = get_runtime_ptr();
         if (nullptr == rt)
         {
-            HPX_THROW_EXCEPTION(
-                invalid_status,
+            HPX_THROW_EXCEPTION(invalid_status,
                 "hpx::is_scheduler_numa_sensitive",
                 "the runtime system has not been initialized yet");
             return false;
@@ -1047,7 +1079,7 @@ namespace hpx
         runtime* rt = get_runtime_ptr();
         if (nullptr != rt)
             return rt->get_state() == state_stopped;
-        return true;        // assume stopped
+        return true;    // assume stopped
     }
 
     bool is_stopped_or_shutting_down()
@@ -1058,7 +1090,7 @@ namespace hpx
             state st = rt->get_state();
             return st >= state_shutdown;
         }
-        return true;        // assume stopped
+        return true;    // assume stopped
     }
 
     bool HPX_EXPORT tolerate_node_faults()
@@ -1081,11 +1113,10 @@ namespace hpx
         runtime* rt = get_runtime_ptr();
         return nullptr != rt ? rt->get_state() < state_startup : true;
     }
-}
+}    // namespace hpx
 
 ///////////////////////////////////////////////////////////////////////////////
-namespace hpx { namespace util
-{
+namespace hpx { namespace util {
     std::string expand(std::string const& in)
     {
         return get_runtime().get_config().expand(in);
@@ -1095,11 +1126,10 @@ namespace hpx { namespace util
     {
         get_runtime().get_config().expand(in, std::string::size_type(-1));
     }
-}}
+}}    // namespace hpx::util
 
 ///////////////////////////////////////////////////////////////////////////////
-namespace hpx { namespace threads
-{
+namespace hpx { namespace threads {
     threadmanager& get_thread_manager()
     {
         return get_runtime().get_thread_manager();
@@ -1143,7 +1173,8 @@ namespace hpx { namespace threads
             to_add_mode, to_remove_mode);
     }
 
-    HPX_API_EXPORT void remove_scheduler_mode(threads::policies::scheduler_mode m)
+    HPX_API_EXPORT void remove_scheduler_mode(
+        threads::policies::scheduler_mode m)
     {
         get_runtime().get_thread_manager().remove_scheduler_mode(m);
     }
@@ -1158,11 +1189,10 @@ namespace hpx { namespace threads
         }
         return rt->get_topology();
     }
-}}
+}}    // namespace hpx::threads
 
 ///////////////////////////////////////////////////////////////////////////////
-namespace hpx
-{
+namespace hpx {
     std::uint64_t get_system_uptime()
     {
         return runtime::get_system_uptime();
@@ -1185,10 +1215,12 @@ namespace hpx
     void start_active_counters(error_code& ec)
     {
         runtime* rt = get_runtime_ptr();
-        if (nullptr != rt) {
+        if (nullptr != rt)
+        {
             rt->start_active_counters(ec);
         }
-        else {
+        else
+        {
             HPX_THROWS_IF(ec, invalid_status, "start_active_counters",
                 "the runtime system is not available at this time");
         }
@@ -1197,10 +1229,12 @@ namespace hpx
     void stop_active_counters(error_code& ec)
     {
         runtime* rt = get_runtime_ptr();
-        if (nullptr != rt) {
+        if (nullptr != rt)
+        {
             rt->stop_active_counters(ec);
         }
-        else {
+        else
+        {
             HPX_THROWS_IF(ec, invalid_status, "stop_active_counters",
                 "the runtime system is not available at this time");
         }
@@ -1209,10 +1243,12 @@ namespace hpx
     void reset_active_counters(error_code& ec)
     {
         runtime* rt = get_runtime_ptr();
-        if (nullptr != rt) {
+        if (nullptr != rt)
+        {
             rt->reset_active_counters(ec);
         }
-        else {
+        else
+        {
             HPX_THROWS_IF(ec, invalid_status, "reset_active_counters",
                 "the runtime system is not available at this time");
         }
@@ -1221,22 +1257,27 @@ namespace hpx
     void reinit_active_counters(bool reset, error_code& ec)
     {
         runtime* rt = get_runtime_ptr();
-        if (nullptr != rt) {
+        if (nullptr != rt)
+        {
             rt->reinit_active_counters(reset, ec);
         }
-        else {
+        else
+        {
             HPX_THROWS_IF(ec, invalid_status, "reinit_active_counters",
                 "the runtime system is not available at this time");
         }
     }
 
-    void evaluate_active_counters(bool reset, char const* description, error_code& ec)
+    void evaluate_active_counters(
+        bool reset, char const* description, error_code& ec)
     {
         runtime* rt = get_runtime_ptr();
-        if (nullptr != rt) {
+        if (nullptr != rt)
+        {
             rt->evaluate_active_counters(reset, description, ec);
         }
-        else {
+        else
+        {
             HPX_THROWS_IF(ec, invalid_status, "evaluate_active_counters",
                 "the runtime system is not available at this time");
         }
@@ -1246,7 +1287,8 @@ namespace hpx
     void stop_evaluating_counters()
     {
         runtime* rt = get_runtime_ptr();
-        if (nullptr != rt) rt->stop_evaluating_counters();
+        if (nullptr != rt)
+            rt->stop_evaluating_counters();
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -1259,9 +1301,852 @@ namespace hpx
         {
             return rt->get_config().enable_networking();
         }
-        return true;        // be on the safe side, enable networking
+        return true;    // be on the safe side, enable networking
 #else
         return false;
 #endif
     }
-}
+}    // namespace hpx
+
+#if defined(_WIN64) && defined(_DEBUG) &&                                      \
+    !defined(HPX_HAVE_FIBER_BASED_COROUTINES)
+#include <io.h>
+#endif
+
+namespace hpx {
+    namespace detail {
+        ///////////////////////////////////////////////////////////////////////
+        // There is no need to protect these global from thread concurrent
+        // access as they are access during early startup only.
+        std::list<startup_function_type> global_pre_startup_functions;
+        std::list<startup_function_type> global_startup_functions;
+        std::list<shutdown_function_type> global_pre_shutdown_functions;
+        std::list<shutdown_function_type> global_shutdown_functions;
+    }    // namespace detail
+
+    ///////////////////////////////////////////////////////////////////////////
+    void register_pre_startup_function(startup_function_type f)
+    {
+        runtime* rt = get_runtime_ptr();
+        if (nullptr != rt)
+        {
+            if (rt->get_state() > state_pre_startup)
+            {
+                HPX_THROW_EXCEPTION(invalid_status,
+                    "register_pre_startup_function",
+                    "Too late to register a new pre-startup function.");
+                return;
+            }
+            rt->add_pre_startup_function(std::move(f));
+        }
+        else
+        {
+            detail::global_pre_startup_functions.push_back(std::move(f));
+        }
+    }
+
+    void register_startup_function(startup_function_type f)
+    {
+        runtime* rt = get_runtime_ptr();
+        if (nullptr != rt)
+        {
+            if (rt->get_state() > state_startup)
+            {
+                HPX_THROW_EXCEPTION(invalid_status, "register_startup_function",
+                    "Too late to register a new startup function.");
+                return;
+            }
+            rt->add_startup_function(std::move(f));
+        }
+        else
+        {
+            detail::global_startup_functions.push_back(std::move(f));
+        }
+    }
+
+    void register_pre_shutdown_function(shutdown_function_type f)
+    {
+        runtime* rt = get_runtime_ptr();
+        if (nullptr != rt)
+        {
+            if (rt->get_state() > state_pre_shutdown)
+            {
+                HPX_THROW_EXCEPTION(invalid_status,
+                    "register_pre_shutdown_function",
+                    "Too late to register a new pre-shutdown function.");
+                return;
+            }
+            rt->add_pre_shutdown_function(std::move(f));
+        }
+        else
+        {
+            detail::global_pre_shutdown_functions.push_back(std::move(f));
+        }
+    }
+
+    void register_shutdown_function(shutdown_function_type f)
+    {
+        runtime* rt = get_runtime_ptr();
+        if (nullptr != rt)
+        {
+            if (rt->get_state() > state_shutdown)
+            {
+                HPX_THROW_EXCEPTION(invalid_status,
+                    "register_shutdown_function",
+                    "Too late to register a new shutdown function.");
+                return;
+            }
+            rt->add_shutdown_function(std::move(f));
+        }
+        else
+        {
+            detail::global_shutdown_functions.push_back(std::move(f));
+        }
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    runtime_local::runtime_local(util::runtime_configuration& rtcfg)
+      : runtime(rtcfg)
+      , mode_(rtcfg.mode_)
+      , result_(0)
+      , main_pool_notifier_()
+      , main_pool_(1, main_pool_notifier_, "main_pool")
+#ifdef HPX_HAVE_IO_POOL
+      , io_pool_notifier_(
+            runtime_local::get_notification_policy("io-thread"))
+      , io_pool_(
+            rtcfg.get_thread_pool_size("io_pool"), io_pool_notifier_, "io_pool")
+#endif
+#ifdef HPX_HAVE_TIMER_POOL
+      , timer_pool_notifier_(
+            runtime_local::get_notification_policy("timer-thread"))
+      , timer_pool_(rtcfg.get_thread_pool_size("timer_pool"),
+            timer_pool_notifier_, "timer_pool")
+#endif
+      , notifier_(runtime_local::get_notification_policy("worker-thread"))
+      , thread_manager_(new hpx::threads::threadmanager(
+#ifdef HPX_HAVE_TIMER_POOL
+            timer_pool_,
+#endif
+            notifier_))
+    {
+        LPROGRESS_;
+
+        // now create all threadmanager pools
+        thread_manager_->create_pools();
+
+        // this initializes the used_processing_units_ mask
+        thread_manager_->init();
+
+        // copy over all startup functions registered so far
+        for (startup_function_type& f : detail::global_pre_startup_functions)
+        {
+            add_pre_startup_function(std::move(f));
+        }
+        detail::global_pre_startup_functions.clear();
+
+        for (startup_function_type& f : detail::global_startup_functions)
+        {
+            add_startup_function(std::move(f));
+        }
+        detail::global_startup_functions.clear();
+
+        for (shutdown_function_type& f : detail::global_pre_shutdown_functions)
+        {
+            add_pre_shutdown_function(std::move(f));
+        }
+        detail::global_pre_shutdown_functions.clear();
+
+        for (shutdown_function_type& f : detail::global_shutdown_functions)
+        {
+            add_shutdown_function(std::move(f));
+        }
+        detail::global_shutdown_functions.clear();
+
+        // set state to initialized
+        set_state(state_initialized);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    runtime_local::~runtime_local()
+    {
+        LRT_(debug) << "~runtime_local(entering)";
+
+        // stop all services
+        thread_manager_->stop();    // stops timer_pool_ as well
+#ifdef HPX_HAVE_IO_POOL
+        io_pool_.stop();
+#endif
+        LRT_(debug) << "~runtime_local(finished)";
+
+        LPROGRESS_;
+    }
+
+    threads::thread_result_type runtime_local::run_helper(
+        util::function_nonser<runtime::hpx_main_function_type> const& func,
+        int& result)
+    {
+        lbt_
+            << "(4th stage) runtime_local::run_helper: bootstrap complete";
+        set_state(state_running);
+
+        // reset all counters right before running main, if requested
+        if (get_config_entry("hpx.print_counter.startup", "0") == "1")
+        {
+            bool reset = false;
+            if (get_config_entry("hpx.print_counter.reset", "0") == "1")
+                reset = true;
+
+            error_code ec(lightweight);    // ignore errors
+            evaluate_active_counters(reset, "startup", ec);
+        }
+
+        // Connect back to given latch if specified
+        std::string connect_back_to(
+            get_config_entry("hpx.on_startup.wait_on_latch", ""));
+        if (!connect_back_to.empty())
+        {
+            lbt_ << "(5th stage) runtime_local::run_helper: about to "
+                    "synchronize with latch: "
+                 << connect_back_to;
+
+            // inform launching process that this locality is up and running
+            hpx::lcos::latch l;
+            l.connect_to(connect_back_to);
+            l.count_down_and_wait();
+
+            lbt_ << "(5th stage) runtime_local::run_helper: "
+                    "synchronized with latch: "
+                 << connect_back_to;
+        }
+
+        // Now, execute the user supplied thread function (hpx_main)
+        if (!!func)
+        {
+            lbt_ << "(last stage) runtime_local::run_helper: about to "
+                    "invoke hpx_main";
+
+            // Change our thread description, as we're about to call hpx_main
+            threads::set_thread_description(threads::get_self_id(), "hpx_main");
+
+            // Call hpx_main
+            result = func();
+        }
+
+        return threads::thread_result_type(
+            threads::terminated, threads::invalid_thread_id);
+    }
+
+    int runtime_local::start(
+        util::function_nonser<hpx_main_function_type> const& func,
+        bool blocking)
+    {
+#if defined(_WIN64) && defined(_DEBUG) &&                                      \
+    !defined(HPX_HAVE_FIBER_BASED_COROUTINES)
+        // needs to be called to avoid problems at system startup
+        // see: http://connect.microsoft.com/VisualStudio/feedback/ViewFeedback.aspx?FeedbackID=100319
+        _isatty(0);
+#endif
+        // {{{ early startup code - local
+
+        // initialize instrumentation system
+        util::apex_init();
+
+        LRT_(info) << "cmd_line: " << get_config().get_cmd_line();
+
+        lbt_ << "(1st stage) runtime_local::start: booting locality "
+             << here();
+
+#ifdef HPX_HAVE_IO_POOL
+        // start the io pool
+        io_pool_.run(false);
+        lbt_
+            << "(1st stage) runtime_local::start: started the application "
+               "I/O service pool";
+#endif
+        // start the thread manager
+        thread_manager_->run();
+        lbt_ << "(1st stage) runtime_local::start: started threadmanager";
+        // }}}
+
+        // {{{ launch main
+        // register the given main function with the thread manager
+        lbt_ << "(1st stage) runtime_local::start: launching run_helper "
+                "HPX thread";
+
+        threads::thread_init_data data(
+            util::bind(
+                &runtime_local::run_helper, this, func, std::ref(result_)),
+            "run_helper", threads::thread_priority_normal,
+            threads::thread_schedule_hint(0),
+            threads::get_stack_size(threads::thread_stacksize_large));
+
+        this->runtime::starting();
+        threads::thread_id_type id = threads::invalid_thread_id;
+        thread_manager_->register_thread(data, id);
+
+        // }}}
+
+        // block if required
+        if (blocking)
+            return wait();    // wait for the shutdown_action to be executed
+
+        // Register this thread with the runtime system to allow calling certain
+        // HPX functionality from the main thread.
+        init_tss("main-thread", 0, 0, "", "", false);
+
+        return 0;    // return zero as we don't know the outcome of hpx_main yet
+    }
+
+    int runtime_local::start(bool blocking)
+    {
+        util::function_nonser<hpx_main_function_type> empty_main;
+        return start(empty_main, blocking);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    std::string locality_prefix(util::runtime_configuration const& cfg)
+    {
+        std::string localities = cfg.get_entry("hpx.localities", "1");
+        std::size_t num_localities =
+            util::safe_lexical_cast<std::size_t>(localities, 1);
+        if (num_localities > 1)
+        {
+            std::string locality = cfg.get_entry("hpx.locality", "");
+            if (!locality.empty())
+            {
+                locality = "locality#" + locality;
+            }
+            return locality;
+        }
+        return "";
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    void runtime_local::wait_helper(
+        std::mutex& mtx, std::condition_variable& cond, bool& running)
+    {
+        // signal successful initialization
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            running = true;
+            cond.notify_all();
+        }
+
+        // prefix thread name with locality number, if needed
+        std::string locality = locality_prefix(get_config());
+
+        // register this thread with any possibly active Intel tool
+        std::string thread_name(locality + "main-thread#wait_helper");
+        HPX_ITT_THREAD_SET_NAME(thread_name.c_str());
+
+        // set thread name as shown in Visual Studio
+        util::set_thread_name(thread_name.c_str());
+
+        // stop main thread pool
+        main_pool_.stop();
+    }
+
+    int runtime_local::wait()
+    {
+        LRT_(info) << "runtime_local: about to enter wait state";
+
+        // start the wait_helper in a separate thread
+        std::mutex mtx;
+        std::condition_variable cond;
+        bool running = false;
+
+        std::thread t(util::bind(&runtime_local::wait_helper, this,
+            std::ref(mtx), std::ref(cond), std::ref(running)));
+
+        // wait for the thread to run
+        {
+            std::unique_lock<std::mutex> lk(mtx);
+            while (!running)
+                cond.wait(lk);
+        }
+
+        // use main thread to drive main thread pool
+        main_pool_.thread_run(0);
+
+        // block main thread
+        t.join();
+
+        util::yield_while(
+            [this]() {
+                return thread_manager_->get_thread_count() >
+                    thread_manager_->get_background_thread_count();
+            },
+            "runtime_local::wait");
+
+        LRT_(info) << "runtime_local: exiting wait state";
+        return result_;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    // First half of termination process: stop thread manager,
+    // schedule a task managed by timer_pool to initiate second part
+    void runtime_local::stop(bool blocking)
+    {
+        LRT_(warning) << "runtime_local: about to stop services";
+
+        // execute all on_exit functions whenever the first thread calls this
+        this->runtime::stopping();
+
+        // stop runtime_local services (threads)
+        thread_manager_->stop(false);    // just initiate shutdown
+
+        if (threads::get_self_ptr())
+        {
+            // schedule task on separate thread to execute stopped() below
+            // this is necessary as this function (stop()) might have been called
+            // from a HPX thread, so it would deadlock by waiting for the thread
+            // manager
+            std::mutex mtx;
+            std::condition_variable cond;
+            std::unique_lock<std::mutex> l(mtx);
+
+            std::thread t(util::bind(&runtime_local::stopped, this,
+                blocking, std::ref(cond), std::ref(mtx)));
+            cond.wait(l);
+
+            t.join();
+        }
+        else
+        {
+            thread_manager_->stop(blocking);    // wait for thread manager
+
+            // this disables all logging from the main thread
+            deinit_tss("main-thread", 0);
+
+            LRT_(info) << "runtime_local: stopped all services";
+        }
+
+#ifdef HPX_HAVE_TIMER_POOL
+        LTM_(info) << "stop: stopping timer pool";
+        timer_pool_.stop();    // stop timer pool as well
+        if (blocking)
+        {
+            timer_pool_.join();
+            timer_pool_.clear();
+        }
+#endif
+#ifdef HPX_HAVE_IO_POOL
+        io_pool_.stop();    // stops io_pool_ as well
+#endif
+        //         deinit_tss();
+    }
+
+    // Second step in termination: shut down all services.
+    // This gets executed as a task in the timer_pool io_service and not as
+    // a HPX thread!
+    void runtime_local::stopped(
+        bool blocking, std::condition_variable& cond, std::mutex& mtx)
+    {
+        // wait for thread manager to exit
+        thread_manager_->stop(blocking);    // wait for thread manager
+
+        // this disables all logging from the main thread
+        deinit_tss("main-thread", 0);
+
+        LRT_(info) << "runtime_local: stopped all services";
+
+        std::lock_guard<std::mutex> l(mtx);
+        cond.notify_all();    // we're done now
+    }
+
+    int runtime_local::suspend()
+    {
+        std::uint32_t initial_num_localities = get_initial_num_localities();
+        if (initial_num_localities > 1)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "runtime_local::suspend",
+                "Can only suspend runtime when number of localities is 1");
+            return -1;
+        }
+
+        LRT_(info) << "runtime_local: about to suspend runtime";
+
+        if (state_.load() == state_sleeping)
+        {
+            return 0;
+        }
+
+        if (state_.load() != state_running)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "runtime_local::suspend",
+                "Can only suspend runtime from running state");
+            return -1;
+        }
+
+        util::yield_while(
+            [this]() {
+                return thread_manager_->get_thread_count() >
+                    thread_manager_->get_background_thread_count();
+            },
+            "runtime_local::suspend");
+
+        thread_manager_->suspend();
+
+#ifdef HPX_HAVE_TIMER_POOL
+        timer_pool_.wait();
+#endif
+#ifdef HPX_HAVE_IO_POOL
+        io_pool_.wait();
+#endif
+
+        set_state(state_sleeping);
+
+        return 0;
+    }
+
+    int runtime_local::resume()
+    {
+        std::uint32_t initial_num_localities = get_initial_num_localities();
+        if (initial_num_localities > 1)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "runtime_local::resume",
+                "Can only suspend runtime when number of localities is 1");
+            return -1;
+        }
+
+        LRT_(info) << "runtime_local: about to resume runtime";
+
+        if (state_.load() == state_running)
+        {
+            return 0;
+        }
+
+        if (state_.load() != state_sleeping)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "runtime_local::resume",
+                "Can only resume runtime from suspended state");
+            return -1;
+        }
+
+        thread_manager_->resume();
+
+        set_state(state_running);
+
+        return 0;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    bool runtime_local::report_error(
+        std::size_t num_thread, std::exception_ptr const& e)
+    {
+        // call thread-specific user-supplied on_error handler
+        bool report_exception = true;
+        if (on_error_func_)
+        {
+            report_exception = on_error_func_(num_thread, e);
+        }
+
+        // Early and late exceptions, errors outside of HPX-threads
+        if (!threads::get_self_ptr() ||
+            !threads::threadmanager_is(state_running))
+        {
+            // report the error to the local console
+            if (report_exception)
+            {
+                detail::report_exception_and_continue(e);
+            }
+
+            // store the exception to be able to rethrow it later
+            {
+                std::lock_guard<std::mutex> l(mtx_);
+                exception_ = e;
+            }
+
+            stop(false);
+
+            return report_exception;
+        }
+
+        return report_exception;
+    }
+
+    bool runtime_local::report_error(std::exception_ptr const& e)
+    {
+        return report_error(hpx::get_worker_thread_num(), e);
+    }
+
+    void runtime_local::rethrow_exception()
+    {
+        if (state_.load() > state_running)
+        {
+            std::lock_guard<std::mutex> l(mtx_);
+            if (exception_)
+            {
+                std::exception_ptr e = exception_;
+                exception_ = std::exception_ptr();
+                std::rethrow_exception(e);
+            }
+        }
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    int runtime_local::run(
+        util::function_nonser<hpx_main_function_type> const& func)
+    {
+        // start the main thread function
+        start(func);
+
+        // now wait for everything to finish
+        wait();
+        stop();
+
+        rethrow_exception();
+        return result_;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    int runtime_local::run()
+    {
+        // start the main thread function
+        start();
+
+        // now wait for everything to finish
+        int result = wait();
+        stop();
+
+        rethrow_exception();
+        return result;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    void runtime_local::default_errorsink(std::string const& msg)
+    {
+        // log the exception information in any case
+        LERR_(always) << "default_errorsink: unhandled exception: " << msg;
+
+        std::cerr << msg << std::endl;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    threads::policies::callback_notifier
+    runtime_local::get_notification_policy(char const* prefix)
+    {
+        typedef bool (runtime_local::*report_error_t)(
+            std::size_t, std::exception_ptr const&);
+
+        using util::placeholders::_1;
+        using util::placeholders::_2;
+        using util::placeholders::_3;
+        using util::placeholders::_4;
+
+        notification_policy_type notifier;
+
+        notifier.add_on_start_thread_callback(
+            util::bind(&runtime_local::init_tss, This(), prefix, _1, _2,
+                _3, _4, false));
+        notifier.add_on_stop_thread_callback(
+            util::bind(&runtime_local::deinit_tss, This(), prefix, _1));
+        notifier.set_on_error_callback(util::bind(
+            static_cast<report_error_t>(&runtime_local::report_error),
+            This(), _1, _2));
+
+        return notifier;
+    }
+
+    void runtime_local::init_tss(char const* context,
+        std::size_t local_thread_num, std::size_t global_thread_num,
+        char const* pool_name, char const* postfix, bool service_thread)
+    {
+        // prefix thread name with locality number, if needed
+        std::string locality = locality_prefix(get_config());
+
+        error_code ec(lightweight);
+        return init_tss_ex(locality, context, local_thread_num,
+            global_thread_num, pool_name, postfix, service_thread, ec);
+    }
+
+    void runtime_local::init_tss_ex(std::string const& locality,
+        char const* context, std::size_t local_thread_num,
+        std::size_t global_thread_num, char const* pool_name,
+        char const* postfix, bool service_thread, error_code& ec)
+    {
+        // initialize our TSS
+        this->runtime::init_tss();
+
+        // set the thread's name, if it's not already set
+        HPX_ASSERT(detail::thread_name().empty());
+
+        std::string fullname = std::string(locality);
+        if (!locality.empty())
+            fullname += "/";
+        fullname += context;
+        if (postfix && *postfix)
+            fullname += postfix;
+        fullname += "#" + std::to_string(global_thread_num);
+        detail::thread_name() = std::move(fullname);
+
+        char const* name = detail::thread_name().c_str();
+
+        // initialize thread mapping for external libraries (i.e. PAPI)
+        thread_support_->register_thread(name, ec);
+
+        // register this thread with any possibly active Intel tool
+        HPX_ITT_THREAD_SET_NAME(name);
+
+        // set thread name as shown in Visual Studio
+        util::set_thread_name(name);
+
+#if defined(HPX_HAVE_APEX)
+        if (std::strstr(name, "worker") != nullptr)
+            apex::register_thread(name);
+#endif
+
+        // call thread-specific user-supplied on_start handler
+        if (on_start_func_)
+        {
+            on_start_func_(
+                local_thread_num, global_thread_num, pool_name, context);
+        }
+
+        // if this is a service thread, set its service affinity
+        if (service_thread)
+        {
+            // FIXME: We don't set the affinity of the service threads on BG/Q,
+            // as this is causing a hang (needs to be investigated)
+#if !defined(__bgq__)
+            threads::mask_cref_type used_processing_units =
+                thread_manager_->get_used_processing_units();
+
+            // --hpx:bind=none  should disable all affinity definitions
+            if (threads::any(used_processing_units))
+            {
+                error_code ec;
+
+                this->topology_.set_thread_affinity_mask(
+                    this->topology_.get_service_affinity_mask(
+                        used_processing_units),
+                    ec);
+
+                // comment this out for now as on CIrcleCI this is causing unending grief
+                //                 if (ec)
+                //                 {
+                //                     HPX_THROW_EXCEPTION(kernel_error
+                //                         , "runtime_local::init_tss_ex"
+                //                         , hpx::util::format(
+                //                             "failed to set thread affinity mask ("
+                //                             HPX_CPU_MASK_PREFIX "{:x}) for service thread: {}",
+                //                             used_processing_units, detail::thread_name()));
+                //                 }
+            }
+#endif
+        }
+    }
+
+    void runtime_local::deinit_tss(
+        char const* context, std::size_t global_thread_num)
+    {
+        // call thread-specific user-supplied on_stop handler
+        if (on_stop_func_)
+        {
+            on_stop_func_(global_thread_num, global_thread_num, "", context);
+        }
+
+        // reset our TSS
+        this->runtime::deinit_tss();
+
+        // reset PAPI support
+        thread_support_->unregister_thread();
+
+        // reset thread local storage
+        detail::thread_name().clear();
+    }
+
+    void runtime_local::add_pre_startup_function(startup_function_type f)
+    {
+        if (!f.empty())
+        {
+            std::lock_guard<std::mutex> l(mtx_);
+            pre_startup_functions_.push_back(std::move(f));
+        }
+    }
+
+    void runtime_local::add_startup_function(startup_function_type f)
+    {
+        if (!f.empty())
+        {
+            std::lock_guard<std::mutex> l(mtx_);
+            startup_functions_.push_back(std::move(f));
+        }
+    }
+
+    void runtime_local::add_pre_shutdown_function(shutdown_function_type f)
+    {
+        if (!f.empty())
+        {
+            std::lock_guard<std::mutex> l(mtx_);
+            pre_shutdown_functions_.push_back(std::move(f));
+        }
+    }
+
+    void runtime_local::add_shutdown_function(shutdown_function_type f)
+    {
+        if (!f.empty())
+        {
+            std::lock_guard<std::mutex> l(mtx_);
+            shutdown_functions_.push_back(std::move(f));
+        }
+    }
+
+    hpx::util::io_service_pool* runtime_local::get_thread_pool(
+        char const* name)
+    {
+        HPX_ASSERT(name != nullptr);
+#ifdef HPX_HAVE_IO_POOL
+        if (0 == std::strncmp(name, "io", 2))
+            return &io_pool_;
+#endif
+#ifdef HPX_HAVE_TIMER_POOL
+        if (0 == std::strncmp(name, "timer", 5))
+            return &timer_pool_;
+#endif
+        if (0 == std::strncmp(name, "main", 4))    //-V112
+            return &main_pool_;
+
+        HPX_THROW_EXCEPTION(bad_parameter,
+            "runtime_local::get_thread_pool",
+            std::string("unknown thread pool requested: ") + name);
+        return nullptr;
+    }
+
+    /// Register an external OS-thread with HPX
+    bool runtime_local::register_thread(char const* name,
+        std::size_t global_thread_num, bool service_thread, error_code& ec)
+    {
+        if (nullptr != get_runtime_ptr())
+            return false;    // already registered
+
+        // prefix thread name with locality number, if needed
+        std::string locality = locality_prefix(get_config());
+
+        std::string thread_name(name);
+        thread_name += "-thread";
+
+        init_tss_ex(locality, thread_name.c_str(), global_thread_num,
+            global_thread_num, "", nullptr, service_thread, ec);
+
+        return !ec ? true : false;
+    }
+
+    /// Unregister an external OS-thread with HPX
+    bool runtime_local::unregister_thread()
+    {
+        if (nullptr != get_runtime_ptr())
+            return false;    // never registered
+
+        deinit_tss(detail::thread_name().c_str(), hpx::get_worker_thread_num());
+        return true;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    threads::policies::callback_notifier get_notification_policy(
+        char const* prefix)
+    {
+        return get_runtime().get_notification_policy(prefix);
+    }
+}    // namespace hpx

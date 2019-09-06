@@ -34,7 +34,7 @@
 #include <hpx/runtime/threads/scoped_background_timer.hpp>
 #include <hpx/runtime/threads/threadmanager.hpp>
 #include <hpx/runtime_distributed.hpp>
-#include <hpx/runtime_impl_local.hpp>
+#include <hpx/runtime.hpp>
 #include <hpx/state.hpp>
 #include <hpx/thread_support/set_thread_name.hpp>
 #include <hpx/util/apex.hpp>
@@ -146,7 +146,7 @@ namespace hpx
     ///////////////////////////////////////////////////////////////////////////
     runtime_distributed::runtime_distributed(
         util::runtime_configuration& rtcfg)
-      : runtime_impl_local(rtcfg)
+      : runtime_local(rtcfg)
       , mode_(rtcfg.mode_)
       , result_(0)
       , main_pool_notifier_()

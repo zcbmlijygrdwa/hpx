@@ -10,7 +10,6 @@
 #include <hpx/config.hpp>
 #include <hpx/performance_counters/registry.hpp>
 #include <hpx/runtime.hpp>
-#include <hpx/runtime_impl_local.hpp>
 #include <hpx/runtime/applier/applier.hpp>
 #include <hpx/runtime/components/server/console_error_sink_singleton.hpp>
 #include <hpx/runtime/components/server/runtime_support.hpp>
@@ -41,7 +40,7 @@ namespace hpx
     /// use way. It makes sure all required parts of the HPX runtime system are
     /// properly initialized.
     class HPX_EXPORT runtime_distributed
-      : public runtime_impl_local
+      : public runtime_local
     {
     private:
         // avoid warnings about usage of this in member initializer list

@@ -30,7 +30,7 @@
 #include <hpx/runtime/shutdown_function.hpp>
 #include <hpx/runtime/startup_function.hpp>
 #include <hpx/runtime/threads/policies/schedulers.hpp>
-#include <hpx/runtime_impl_local.hpp>
+#include <hpx/runtime.hpp>
 #include <hpx/runtime_distributed.hpp>
 #include <hpx/testing.hpp>
 #include <hpx/util/apex.hpp>
@@ -755,7 +755,7 @@ namespace hpx
 #if 1
                 using runtime_type = hpx::runtime_distributed;
 #else
-                using runtime_type = hpx::runtime_impl_local;
+                using runtime_type = hpx::runtime_local;
 #endif
                 runtime_type* rt_impl = new runtime_type(cms.rtcfg_);
                 std::unique_ptr<hpx::runtime> rt(rt_impl);
