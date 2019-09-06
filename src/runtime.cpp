@@ -250,6 +250,28 @@ namespace hpx {
       , on_start_func_(global_on_start_func)
       , on_stop_func_(global_on_stop_func)
       , on_error_func_(global_on_error_func)
+      , mode_(rtcfg.mode_)
+      , result_(0)
+      , main_pool_notifier_()
+      , main_pool_(1, main_pool_notifier_, "main_pool")
+#ifdef HPX_HAVE_IO_POOL
+      , io_pool_notifier_(
+            runtime::get_notification_policy("io-thread"))
+      , io_pool_(
+            rtcfg.get_thread_pool_size("io_pool"), io_pool_notifier_, "io_pool")
+#endif
+#ifdef HPX_HAVE_TIMER_POOL
+      , timer_pool_notifier_(
+            runtime::get_notification_policy("timer-thread"))
+      , timer_pool_(rtcfg.get_thread_pool_size("timer_pool"),
+            timer_pool_notifier_, "timer_pool")
+#endif
+      , notifier_(runtime::get_notification_policy("worker-thread"))
+      , thread_manager_(new hpx::threads::threadmanager(
+#ifdef HPX_HAVE_TIMER_POOL
+            timer_pool_,
+#endif
+            notifier_))
     {
         LPROGRESS_;
 
@@ -258,10 +280,57 @@ namespace hpx {
         util::reinit_construct();    // call only after TLS was initialized
 
         counters_ = std::make_shared<performance_counters::registry>();
+
+        LPROGRESS_;
+
+        // now create all threadmanager pools
+        thread_manager_->create_pools();
+
+        // this initializes the used_processing_units_ mask
+        thread_manager_->init();
+
+        // copy over all startup functions registered so far
+        for (startup_function_type& f : detail::global_pre_startup_functions)
+        {
+            add_pre_startup_function(std::move(f));
+        }
+        detail::global_pre_startup_functions.clear();
+
+        for (startup_function_type& f : detail::global_startup_functions)
+        {
+            add_startup_function(std::move(f));
+        }
+        detail::global_startup_functions.clear();
+
+        for (shutdown_function_type& f : detail::global_pre_shutdown_functions)
+        {
+            add_pre_shutdown_function(std::move(f));
+        }
+        detail::global_pre_shutdown_functions.clear();
+
+        for (shutdown_function_type& f : detail::global_shutdown_functions)
+        {
+            add_shutdown_function(std::move(f));
+        }
+        detail::global_shutdown_functions.clear();
+
+        // set state to initialized
+        set_state(state_initialized);
     }
 
     runtime::~runtime()
     {
+        LRT_(debug) << "~runtime_local(entering)";
+
+        // stop all services
+        thread_manager_->stop();    // stops timer_pool_ as well
+#ifdef HPX_HAVE_IO_POOL
+        io_pool_.stop();
+#endif
+        LRT_(debug) << "~runtime_local(finished)";
+
+        LPROGRESS_;
+
         // allow to reuse instance number if this was the only instance
         if (0 == instance_number_counter_)
             --instance_number_counter_;
@@ -1404,90 +1473,12 @@ namespace hpx {
         }
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    runtime_local::runtime_local(util::runtime_configuration& rtcfg)
-      : runtime(rtcfg)
-      , mode_(rtcfg.mode_)
-      , result_(0)
-      , main_pool_notifier_()
-      , main_pool_(1, main_pool_notifier_, "main_pool")
-#ifdef HPX_HAVE_IO_POOL
-      , io_pool_notifier_(
-            runtime_local::get_notification_policy("io-thread"))
-      , io_pool_(
-            rtcfg.get_thread_pool_size("io_pool"), io_pool_notifier_, "io_pool")
-#endif
-#ifdef HPX_HAVE_TIMER_POOL
-      , timer_pool_notifier_(
-            runtime_local::get_notification_policy("timer-thread"))
-      , timer_pool_(rtcfg.get_thread_pool_size("timer_pool"),
-            timer_pool_notifier_, "timer_pool")
-#endif
-      , notifier_(runtime_local::get_notification_policy("worker-thread"))
-      , thread_manager_(new hpx::threads::threadmanager(
-#ifdef HPX_HAVE_TIMER_POOL
-            timer_pool_,
-#endif
-            notifier_))
-    {
-        LPROGRESS_;
-
-        // now create all threadmanager pools
-        thread_manager_->create_pools();
-
-        // this initializes the used_processing_units_ mask
-        thread_manager_->init();
-
-        // copy over all startup functions registered so far
-        for (startup_function_type& f : detail::global_pre_startup_functions)
-        {
-            add_pre_startup_function(std::move(f));
-        }
-        detail::global_pre_startup_functions.clear();
-
-        for (startup_function_type& f : detail::global_startup_functions)
-        {
-            add_startup_function(std::move(f));
-        }
-        detail::global_startup_functions.clear();
-
-        for (shutdown_function_type& f : detail::global_pre_shutdown_functions)
-        {
-            add_pre_shutdown_function(std::move(f));
-        }
-        detail::global_pre_shutdown_functions.clear();
-
-        for (shutdown_function_type& f : detail::global_shutdown_functions)
-        {
-            add_shutdown_function(std::move(f));
-        }
-        detail::global_shutdown_functions.clear();
-
-        // set state to initialized
-        set_state(state_initialized);
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    runtime_local::~runtime_local()
-    {
-        LRT_(debug) << "~runtime_local(entering)";
-
-        // stop all services
-        thread_manager_->stop();    // stops timer_pool_ as well
-#ifdef HPX_HAVE_IO_POOL
-        io_pool_.stop();
-#endif
-        LRT_(debug) << "~runtime_local(finished)";
-
-        LPROGRESS_;
-    }
-
-    threads::thread_result_type runtime_local::run_helper(
+    threads::thread_result_type runtime::run_helper(
         util::function_nonser<runtime::hpx_main_function_type> const& func,
         int& result)
     {
         lbt_
-            << "(4th stage) runtime_local::run_helper: bootstrap complete";
+            << "(4th stage) runtime::run_helper: bootstrap complete";
         set_state(state_running);
 
         // reset all counters right before running main, if requested
@@ -1506,7 +1497,7 @@ namespace hpx {
             get_config_entry("hpx.on_startup.wait_on_latch", ""));
         if (!connect_back_to.empty())
         {
-            lbt_ << "(5th stage) runtime_local::run_helper: about to "
+            lbt_ << "(5th stage) runtime::run_helper: about to "
                     "synchronize with latch: "
                  << connect_back_to;
 
@@ -1515,7 +1506,7 @@ namespace hpx {
             l.connect_to(connect_back_to);
             l.count_down_and_wait();
 
-            lbt_ << "(5th stage) runtime_local::run_helper: "
+            lbt_ << "(5th stage) runtime::run_helper: "
                     "synchronized with latch: "
                  << connect_back_to;
         }
@@ -1523,7 +1514,7 @@ namespace hpx {
         // Now, execute the user supplied thread function (hpx_main)
         if (!!func)
         {
-            lbt_ << "(last stage) runtime_local::run_helper: about to "
+            lbt_ << "(last stage) runtime::run_helper: about to "
                     "invoke hpx_main";
 
             // Change our thread description, as we're about to call hpx_main
@@ -1537,7 +1528,7 @@ namespace hpx {
             threads::terminated, threads::invalid_thread_id);
     }
 
-    int runtime_local::start(
+    int runtime::start(
         util::function_nonser<hpx_main_function_type> const& func,
         bool blocking)
     {
@@ -1554,29 +1545,29 @@ namespace hpx {
 
         LRT_(info) << "cmd_line: " << get_config().get_cmd_line();
 
-        lbt_ << "(1st stage) runtime_local::start: booting locality "
+        lbt_ << "(1st stage) runtime::start: booting locality "
              << here();
 
 #ifdef HPX_HAVE_IO_POOL
         // start the io pool
         io_pool_.run(false);
         lbt_
-            << "(1st stage) runtime_local::start: started the application "
+            << "(1st stage) runtime::start: started the application "
                "I/O service pool";
 #endif
         // start the thread manager
         thread_manager_->run();
-        lbt_ << "(1st stage) runtime_local::start: started threadmanager";
+        lbt_ << "(1st stage) runtime::start: started threadmanager";
         // }}}
 
         // {{{ launch main
         // register the given main function with the thread manager
-        lbt_ << "(1st stage) runtime_local::start: launching run_helper "
+        lbt_ << "(1st stage) runtime::start: launching run_helper "
                 "HPX thread";
 
         threads::thread_init_data data(
             util::bind(
-                &runtime_local::run_helper, this, func, std::ref(result_)),
+                &runtime::run_helper, this, func, std::ref(result_)),
             "run_helper", threads::thread_priority_normal,
             threads::thread_schedule_hint(0),
             threads::get_stack_size(threads::thread_stacksize_large));
@@ -1593,12 +1584,12 @@ namespace hpx {
 
         // Register this thread with the runtime system to allow calling certain
         // HPX functionality from the main thread.
-        init_tss("main-thread", 0, 0, "", "", false);
+        init_tss_2("main-thread", 0, 0, "", "", false);
 
         return 0;    // return zero as we don't know the outcome of hpx_main yet
     }
 
-    int runtime_local::start(bool blocking)
+    int runtime::start(bool blocking)
     {
         util::function_nonser<hpx_main_function_type> empty_main;
         return start(empty_main, blocking);
@@ -1623,7 +1614,7 @@ namespace hpx {
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    void runtime_local::wait_helper(
+    void runtime::wait_helper(
         std::mutex& mtx, std::condition_variable& cond, bool& running)
     {
         // signal successful initialization
@@ -1647,7 +1638,7 @@ namespace hpx {
         main_pool_.stop();
     }
 
-    int runtime_local::wait()
+    int runtime::wait()
     {
         LRT_(info) << "runtime_local: about to enter wait state";
 
@@ -1656,7 +1647,7 @@ namespace hpx {
         std::condition_variable cond;
         bool running = false;
 
-        std::thread t(util::bind(&runtime_local::wait_helper, this,
+        std::thread t(util::bind(&runtime::wait_helper, this,
             std::ref(mtx), std::ref(cond), std::ref(running)));
 
         // wait for the thread to run
@@ -1677,7 +1668,7 @@ namespace hpx {
                 return thread_manager_->get_thread_count() >
                     thread_manager_->get_background_thread_count();
             },
-            "runtime_local::wait");
+            "runtime::wait");
 
         LRT_(info) << "runtime_local: exiting wait state";
         return result_;
@@ -1686,7 +1677,7 @@ namespace hpx {
     ///////////////////////////////////////////////////////////////////////////
     // First half of termination process: stop thread manager,
     // schedule a task managed by timer_pool to initiate second part
-    void runtime_local::stop(bool blocking)
+    void runtime::stop(bool blocking)
     {
         LRT_(warning) << "runtime_local: about to stop services";
 
@@ -1706,7 +1697,7 @@ namespace hpx {
             std::condition_variable cond;
             std::unique_lock<std::mutex> l(mtx);
 
-            std::thread t(util::bind(&runtime_local::stopped, this,
+            std::thread t(util::bind(&runtime::stopped_2, this,
                 blocking, std::ref(cond), std::ref(mtx)));
             cond.wait(l);
 
@@ -1717,7 +1708,7 @@ namespace hpx {
             thread_manager_->stop(blocking);    // wait for thread manager
 
             // this disables all logging from the main thread
-            deinit_tss("main-thread", 0);
+            deinit_tss_2("main-thread", 0);
 
             LRT_(info) << "runtime_local: stopped all services";
         }
@@ -1740,14 +1731,14 @@ namespace hpx {
     // Second step in termination: shut down all services.
     // This gets executed as a task in the timer_pool io_service and not as
     // a HPX thread!
-    void runtime_local::stopped(
+    void runtime::stopped_2(
         bool blocking, std::condition_variable& cond, std::mutex& mtx)
     {
         // wait for thread manager to exit
         thread_manager_->stop(blocking);    // wait for thread manager
 
         // this disables all logging from the main thread
-        deinit_tss("main-thread", 0);
+        deinit_tss_2("main-thread", 0);
 
         LRT_(info) << "runtime_local: stopped all services";
 
@@ -1755,12 +1746,12 @@ namespace hpx {
         cond.notify_all();    // we're done now
     }
 
-    int runtime_local::suspend()
+    int runtime::suspend()
     {
         std::uint32_t initial_num_localities = get_initial_num_localities();
         if (initial_num_localities > 1)
         {
-            HPX_THROW_EXCEPTION(invalid_status, "runtime_local::suspend",
+            HPX_THROW_EXCEPTION(invalid_status, "runtime::suspend",
                 "Can only suspend runtime when number of localities is 1");
             return -1;
         }
@@ -1774,7 +1765,7 @@ namespace hpx {
 
         if (state_.load() != state_running)
         {
-            HPX_THROW_EXCEPTION(invalid_status, "runtime_local::suspend",
+            HPX_THROW_EXCEPTION(invalid_status, "runtime::suspend",
                 "Can only suspend runtime from running state");
             return -1;
         }
@@ -1784,7 +1775,7 @@ namespace hpx {
                 return thread_manager_->get_thread_count() >
                     thread_manager_->get_background_thread_count();
             },
-            "runtime_local::suspend");
+            "runtime::suspend");
 
         thread_manager_->suspend();
 
@@ -1800,12 +1791,12 @@ namespace hpx {
         return 0;
     }
 
-    int runtime_local::resume()
+    int runtime::resume()
     {
         std::uint32_t initial_num_localities = get_initial_num_localities();
         if (initial_num_localities > 1)
         {
-            HPX_THROW_EXCEPTION(invalid_status, "runtime_local::resume",
+            HPX_THROW_EXCEPTION(invalid_status, "runtime::resume",
                 "Can only suspend runtime when number of localities is 1");
             return -1;
         }
@@ -1819,7 +1810,7 @@ namespace hpx {
 
         if (state_.load() != state_sleeping)
         {
-            HPX_THROW_EXCEPTION(invalid_status, "runtime_local::resume",
+            HPX_THROW_EXCEPTION(invalid_status, "runtime::resume",
                 "Can only resume runtime from suspended state");
             return -1;
         }
@@ -1832,7 +1823,7 @@ namespace hpx {
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    bool runtime_local::report_error(
+    bool runtime::report_error(
         std::size_t num_thread, std::exception_ptr const& e)
     {
         // call thread-specific user-supplied on_error handler
@@ -1866,12 +1857,12 @@ namespace hpx {
         return report_exception;
     }
 
-    bool runtime_local::report_error(std::exception_ptr const& e)
+    bool runtime::report_error(std::exception_ptr const& e)
     {
         return report_error(hpx::get_worker_thread_num(), e);
     }
 
-    void runtime_local::rethrow_exception()
+    void runtime::rethrow_exception()
     {
         if (state_.load() > state_running)
         {
@@ -1886,7 +1877,7 @@ namespace hpx {
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    int runtime_local::run(
+    int runtime::run(
         util::function_nonser<hpx_main_function_type> const& func)
     {
         // start the main thread function
@@ -1901,7 +1892,7 @@ namespace hpx {
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    int runtime_local::run()
+    int runtime::run()
     {
         // start the main thread function
         start();
@@ -1915,7 +1906,7 @@ namespace hpx {
     }
 
     ///////////////////////////////////////////////////////////////////////////
-    void runtime_local::default_errorsink(std::string const& msg)
+    void runtime::default_errorsink(std::string const& msg)
     {
         // log the exception information in any case
         LERR_(always) << "default_errorsink: unhandled exception: " << msg;
@@ -1925,9 +1916,9 @@ namespace hpx {
 
     ///////////////////////////////////////////////////////////////////////////
     threads::policies::callback_notifier
-    runtime_local::get_notification_policy(char const* prefix)
+    runtime::get_notification_policy(char const* prefix)
     {
-        typedef bool (runtime_local::*report_error_t)(
+        typedef bool (runtime::*report_error_t)(
             std::size_t, std::exception_ptr const&);
 
         using util::placeholders::_1;
@@ -1938,18 +1929,18 @@ namespace hpx {
         notification_policy_type notifier;
 
         notifier.add_on_start_thread_callback(
-            util::bind(&runtime_local::init_tss, This(), prefix, _1, _2,
+            util::bind(&runtime::init_tss_2, This(), prefix, _1, _2,
                 _3, _4, false));
         notifier.add_on_stop_thread_callback(
-            util::bind(&runtime_local::deinit_tss, This(), prefix, _1));
+            util::bind(&runtime::deinit_tss_2, This(), prefix, _1));
         notifier.set_on_error_callback(util::bind(
-            static_cast<report_error_t>(&runtime_local::report_error),
+            static_cast<report_error_t>(&runtime::report_error),
             This(), _1, _2));
 
         return notifier;
     }
 
-    void runtime_local::init_tss(char const* context,
+    void runtime::init_tss_2(char const* context,
         std::size_t local_thread_num, std::size_t global_thread_num,
         char const* pool_name, char const* postfix, bool service_thread)
     {
@@ -1961,7 +1952,7 @@ namespace hpx {
             global_thread_num, pool_name, postfix, service_thread, ec);
     }
 
-    void runtime_local::init_tss_ex(std::string const& locality,
+    void runtime::init_tss_ex(std::string const& locality,
         char const* context, std::size_t local_thread_num,
         std::size_t global_thread_num, char const* pool_name,
         char const* postfix, bool service_thread, error_code& ec)
@@ -2027,7 +2018,7 @@ namespace hpx {
                 //                 if (ec)
                 //                 {
                 //                     HPX_THROW_EXCEPTION(kernel_error
-                //                         , "runtime_local::init_tss_ex"
+                //                         , "runtime::init_tss_ex"
                 //                         , hpx::util::format(
                 //                             "failed to set thread affinity mask ("
                 //                             HPX_CPU_MASK_PREFIX "{:x}) for service thread: {}",
@@ -2038,7 +2029,7 @@ namespace hpx {
         }
     }
 
-    void runtime_local::deinit_tss(
+    void runtime::deinit_tss_2(
         char const* context, std::size_t global_thread_num)
     {
         // call thread-specific user-supplied on_stop handler
@@ -2057,7 +2048,7 @@ namespace hpx {
         detail::thread_name().clear();
     }
 
-    void runtime_local::add_pre_startup_function(startup_function_type f)
+    void runtime::add_pre_startup_function(startup_function_type f)
     {
         if (!f.empty())
         {
@@ -2066,7 +2057,7 @@ namespace hpx {
         }
     }
 
-    void runtime_local::add_startup_function(startup_function_type f)
+    void runtime::add_startup_function(startup_function_type f)
     {
         if (!f.empty())
         {
@@ -2075,7 +2066,7 @@ namespace hpx {
         }
     }
 
-    void runtime_local::add_pre_shutdown_function(shutdown_function_type f)
+    void runtime::add_pre_shutdown_function(shutdown_function_type f)
     {
         if (!f.empty())
         {
@@ -2084,7 +2075,7 @@ namespace hpx {
         }
     }
 
-    void runtime_local::add_shutdown_function(shutdown_function_type f)
+    void runtime::add_shutdown_function(shutdown_function_type f)
     {
         if (!f.empty())
         {
@@ -2093,7 +2084,7 @@ namespace hpx {
         }
     }
 
-    hpx::util::io_service_pool* runtime_local::get_thread_pool(
+    hpx::util::io_service_pool* runtime::get_thread_pool(
         char const* name)
     {
         HPX_ASSERT(name != nullptr);
@@ -2109,13 +2100,13 @@ namespace hpx {
             return &main_pool_;
 
         HPX_THROW_EXCEPTION(bad_parameter,
-            "runtime_local::get_thread_pool",
+            "runtime::get_thread_pool",
             std::string("unknown thread pool requested: ") + name);
         return nullptr;
     }
 
     /// Register an external OS-thread with HPX
-    bool runtime_local::register_thread(char const* name,
+    bool runtime::register_thread(char const* name,
         std::size_t global_thread_num, bool service_thread, error_code& ec)
     {
         if (nullptr != get_runtime_ptr())
@@ -2134,12 +2125,12 @@ namespace hpx {
     }
 
     /// Unregister an external OS-thread with HPX
-    bool runtime_local::unregister_thread()
+    bool runtime::unregister_thread()
     {
         if (nullptr != get_runtime_ptr())
             return false;    // never registered
 
-        deinit_tss(detail::thread_name().c_str(), hpx::get_worker_thread_num());
+        deinit_tss_2(detail::thread_name().c_str(), hpx::get_worker_thread_num());
         return true;
     }
 

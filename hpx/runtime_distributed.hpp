@@ -40,7 +40,7 @@ namespace hpx
     /// use way. It makes sure all required parts of the HPX runtime system are
     /// properly initialized.
     class HPX_EXPORT runtime_distributed
-      : public runtime_local
+      : public runtime
     {
     private:
         // avoid warnings about usage of this in member initializer list

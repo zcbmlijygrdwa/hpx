@@ -43,6 +43,16 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 namespace hpx {
+    namespace detail {
+        ///////////////////////////////////////////////////////////////////////
+        // There is no need to protect these global from thread concurrent
+        // access as they are access during early startup only.
+        extern std::list<startup_function_type> global_pre_startup_functions;
+        extern std::list<startup_function_type> global_startup_functions;
+        extern std::list<shutdown_function_type> global_pre_shutdown_functions;
+        extern std::list<shutdown_function_type> global_shutdown_functions;
+    }    // namespace detail
+
     // \brief Returns if HPX continues past connection signals
     // caused by crashed nodes
     HPX_EXPORT bool tolerate_node_faults();
@@ -81,9 +91,15 @@ namespace hpx {
         typedef void hpx_errorsink_function_type(
             std::uint32_t, std::string const&);
 
-        /// construct a new instance of a runtime
+        /// Construct a new HPX runtime instance
+        ///
+        /// TODO: This is not correct...
+        ///  \param locality_mode  [in] This is the mode the given runtime
+        ///                       instance should be executed in.
         runtime(util::runtime_configuration& rtcfg);
 
+        /// \brief The destructor makes sure all HPX runtime services are
+        ///        properly shut down before exiting.
         virtual ~runtime();
 
         /// \brief Manage list of functions to call on exit
@@ -116,6 +132,19 @@ namespace hpx {
         {
             return state_.load() == state_stopped;
         }
+
+        ///  \brief Stop the runtime system, wait for termination
+        ///
+        /// \param blocking   [in] This allows to control whether this
+        ///                   call blocks until the runtime system has been
+        ///                   fully stopped. If this parameter is \a false then
+        ///                   this call will initiate the stop action but will
+        ///                   return immediately. Use a second call to stop
+        ///                   with this parameter set to \a true to wait for
+        ///                   all internal work to be completed.
+        // TODO: Rename
+        void stopped_2(
+            bool blocking, std::condition_variable& cond, std::mutex& mtx);
 
         /// \brief access configuration information
         util::runtime_configuration& get_config()
@@ -160,45 +189,181 @@ namespace hpx {
         ///        instance
         void register_counter_types();
 
-        ///////////////////////////////////////////////////////////////////////
+        /// \brief Run the HPX runtime system, use the given function for the
+        ///        main \a thread and block waiting for all threads to
+        ///        finish
+        ///
+        /// \param func       [in] This is the main function of an HPX
+        ///                   application. It will be scheduled for execution
+        ///                   by the thread manager as soon as the runtime has
+        ///                   been initialized. This function is expected to
+        ///                   expose an interface as defined by the typedef
+        ///                   \a hpx_main_function_type. This parameter is
+        ///                   optional and defaults to none main thread
+        ///                   function, in which case all threads have to be
+        ///                   scheduled explicitly.
+        ///
+        /// \note             The parameter \a func is optional. If no function
+        ///                   is supplied, the runtime system will simply wait
+        ///                   for the shutdown action without explicitly
+        ///                   executing any main thread.
+        ///
+        /// \returns          This function will return the value as returned
+        ///                   as the result of the invocation of the function
+        ///                   object given by the parameter \p func.
         virtual int run(
-            util::function_nonser<hpx_main_function_type> const& func) = 0;
+            util::function_nonser<hpx_main_function_type> const& func);
 
-        virtual int run() = 0;
+        /// \brief Run the HPX runtime system, initially use the given number
+        ///        of (OS) threads in the thread-manager and block waiting for
+        ///        all threads to finish.
+        ///
+        /// \returns          This function will always return 0 (zero).
+        virtual int run();
 
-        virtual void rethrow_exception() = 0;
+        /// Rethrow any stored exception (to be called after stop())
+        virtual void rethrow_exception();
 
+        /// \brief Start the runtime system
+        ///
+        /// \param func       [in] This is the main function of an HPX
+        ///                   application. It will be scheduled for execution
+        ///                   by the thread manager as soon as the runtime has
+        ///                   been initialized. This function is expected to
+        ///                   expose an interface as defined by the typedef
+        ///                   \a hpx_main_function_type.
+        /// \param blocking   [in] This allows to control whether this
+        ///                   call blocks until the runtime system has been
+        ///                   stopped. If this parameter is \a true the
+        ///                   function \a runtime#start will call
+        ///                   \a runtime#wait internally.
+        ///
+        /// \returns          If a blocking is a true, this function will
+        ///                   return the value as returned as the result of the
+        ///                   invocation of the function object given by the
+        ///                   parameter \p func. Otherwise it will return zero.
         virtual int start(
             util::function_nonser<hpx_main_function_type> const& func,
-            bool blocking = false) = 0;
+            bool blocking = false);
 
-        virtual int start(bool blocking = false) = 0;
+        /// \brief Start the runtime system
+        ///
+        /// \param blocking   [in] This allows to control whether this
+        ///                   call blocks until the runtime system has been
+        ///                   stopped. If this parameter is \a true the
+        ///                   function \a runtime#start will call
+        ///                   \a runtime#wait internally .
+        ///
+        /// \returns          If a blocking is a true, this function will
+        ///                   return the value as returned as the result of the
+        ///                   invocation of the function object given by the
+        ///                   parameter \p func. Otherwise it will return zero.
+        virtual int start(bool blocking = false);
 
-        virtual int wait() = 0;
+        /// \brief Wait for the shutdown action to be executed
+        ///
+        /// \returns          This function will return the value as returned
+        ///                   as the result of the invocation of the function
+        ///                   object given by the parameter \p func.
+        virtual int wait();
 
-        virtual void stop(bool blocking = true) = 0;
+        /// \brief Initiate termination of the runtime system
+        ///
+        /// \param blocking   [in] This allows to control whether this
+        ///                   call blocks until the runtime system has been
+        ///                   fully stopped. If this parameter is \a false then
+        ///                   this call will initiate the stop action but will
+        ///                   return immediately. Use a second call to stop
+        ///                   with this parameter set to \a true to wait for
+        ///                   all internal work to be completed.
+        virtual void stop(bool blocking = true);
 
-        virtual int suspend() = 0;
-        virtual int resume() = 0;
+        /// \brief Suspend the runtime system
+        virtual int suspend();
 
-        virtual int finalize(double shutdown_timeout) = 0;
+        ///    \brief Resume the runtime system
+        virtual int resume();
 
-        virtual threads::threadmanager& get_thread_manager() = 0;
+        virtual int finalize(double shutdown_timeout)
+        {
+            return 0;
+        }
 
-        virtual std::string here() const = 0;
+        /// \brief Allow access to the thread manager instance used by the HPX
+        ///        runtime.
+        virtual hpx::threads::threadmanager& get_thread_manager()
+        {
+            return *thread_manager_;
+        }
 
+        /// \brief Returns a string of the locality endpoints (usable in debug output)
+        virtual std::string here() const
+        {
+            return "127.0.0.1";
+        }
+
+        /// \brief Report a non-recoverable error to the runtime system
+        ///
+        /// \param num_thread [in] The number of the operating system thread
+        ///                   the error has been detected in.
+        /// \param e          [in] This is an instance encapsulating an
+        ///                   exception which lead to this function call.
         virtual bool report_error(
-            std::size_t num_thread, std::exception_ptr const& e) = 0;
+            std::size_t num_thread, std::exception_ptr const& e);
 
-        virtual bool report_error(std::exception_ptr const& e) = 0;
+        /// \brief Report a non-recoverable error to the runtime system
+        ///
+        /// \param e          [in] This is an instance encapsulating an
+        ///                   exception which lead to this function call.
+        ///
+        /// \note This function will retrieve the number of the current
+        ///       shepherd thread and forward to the report_error function
+        ///       above.
+        virtual bool report_error(std::exception_ptr const& e);
 
-        virtual void add_pre_startup_function(startup_function_type f) = 0;
+        /// Add a function to be executed inside a HPX thread before hpx_main
+        /// but guaranteed to be executed before any startup function registered
+        /// with \a add_startup_function.
+        ///
+        /// \param  f   The function 'f' will be called from inside a HPX
+        ///             thread before hpx_main is executed. This is very useful
+        ///             to setup the runtime environment of the application
+        ///             (install performance counters, etc.)
+        ///
+        /// \note       The difference to a startup function is that all
+        ///             pre-startup functions will be (system-wide) executed
+        ///             before any startup function.
+        virtual void add_pre_startup_function(startup_function_type f);
 
-        virtual void add_startup_function(startup_function_type f) = 0;
+        /// Add a function to be executed inside a HPX thread before hpx_main
+        ///
+        /// \param  f   The function 'f' will be called from inside a HPX
+        ///             thread before hpx_main is executed. This is very useful
+        ///             to setup the runtime environment of the application
+        ///             (install performance counters, etc.)
+        virtual void add_startup_function(startup_function_type f);
 
-        virtual void add_pre_shutdown_function(shutdown_function_type f) = 0;
+        /// Add a function to be executed inside a HPX thread during
+        /// hpx::finalize, but guaranteed before any of teh shutdown functions
+        /// is executed.
+        ///
+        /// \param  f   The function 'f' will be called from inside a HPX
+        ///             thread while hpx::finalize is executed. This is very
+        ///             useful to tear down the runtime environment of the
+        ///             application (uninstall performance counters, etc.)
+        ///
+        /// \note       The difference to a shutdown function is that all
+        ///             pre-shutdown functions will be (system-wide) executed
+        ///             before any shutdown function.
+        virtual void add_pre_shutdown_function(shutdown_function_type f);
 
-        virtual void add_shutdown_function(shutdown_function_type f) = 0;
+        /// Add a function to be executed inside a HPX thread during hpx::finalize
+        ///
+        /// \param  f   The function 'f' will be called from inside a HPX
+        ///             thread while hpx::finalize is executed. This is very
+        ///             useful to tear down the runtime environment of the
+        ///             application (uninstall performance counters, etc.)
+        virtual void add_shutdown_function(shutdown_function_type f);
 
         /// Access one of the internal thread pools (io_service instances)
         /// HPX is using to perform specific tasks. The three possible values
@@ -206,7 +371,7 @@ namespace hpx {
         /// and "timer_pool". For any other argument value the function will
         /// return zero.
         virtual hpx::util::io_service_pool* get_thread_pool(
-            char const* name) = 0;
+            char const* name);
 
         /// \brief Register an external OS-thread with HPX
         ///
@@ -239,7 +404,7 @@ namespace hpx {
         ///          succeeded or not.
         ///
         virtual bool register_thread(char const* name, std::size_t num = 0,
-            bool service_thread = true, error_code& ec = throws) = 0;
+            bool service_thread = true, error_code& ec = throws);
 
         /// \brief Unregister an external OS-thread with HPX
         ///
@@ -253,13 +418,13 @@ namespace hpx {
         /// \returns This function will return whether th erequested operation
         ///          succeeded or not.
         ///
-        virtual bool unregister_thread() = 0;
+        virtual bool unregister_thread();
 
         /// Generate a new notification policy instance for the given thread
         /// name prefix
         typedef threads::policies::callback_notifier notification_policy_type;
         virtual notification_policy_type get_notification_policy(
-            char const* prefix) = 0;
+            char const* prefix);
 
         ///////////////////////////////////////////////////////////////////////
         // management API for active performance counters
@@ -291,8 +456,40 @@ namespace hpx {
         void init_tss();
         void deinit_tss();
 
+    private:
+        // TODO: Rename
+        void deinit_tss_2(char const* context, std::size_t num);
+
+        void init_tss_ex(std::string const& locality, char const* context,
+            std::size_t local_thread_num, std::size_t global_thread_num,
+            char const* pool_name, char const* postfix, bool service_thread,
+            error_code& ec);
+
+        // TODO: Rename
+        void init_tss_2(char const* context, std::size_t local_thread_num,
+            std::size_t global_thread_num, char const* pool_name,
+            char const* postfix, bool service_thread);
+
     public:
         void set_state(state s);
+
+    private:
+        // avoid warnings about usage of this in member initializer list
+        runtime* This()
+        {
+            return this;
+        }
+
+        //
+        static void default_errorsink(std::string const&);
+
+        //
+        threads::thread_result_type run_helper(
+            util::function_nonser<runtime::hpx_main_function_type> const& func,
+            int& result);
+
+        void wait_helper(
+            std::mutex& mtx, std::condition_variable& cond, bool& running);
 
     protected:
         // list of functions to call on exit
@@ -324,274 +521,6 @@ namespace hpx {
         notification_policy_type::on_startstop_type on_start_func_;
         notification_policy_type::on_startstop_type on_stop_func_;
         notification_policy_type::on_error_type on_error_func_;
-    };
-}    // namespace hpx
-
-namespace hpx {
-    namespace detail {
-        ///////////////////////////////////////////////////////////////////////
-        // There is no need to protect these global from thread concurrent
-        // access as they are access during early startup only.
-        extern std::list<startup_function_type> global_pre_startup_functions;
-        extern std::list<startup_function_type> global_startup_functions;
-        extern std::list<shutdown_function_type> global_pre_shutdown_functions;
-        extern std::list<shutdown_function_type> global_shutdown_functions;
-    }    // namespace detail
-
-    /// The \a runtime class encapsulates the HPX runtime system in a simple to
-    /// use way. It makes sure all required parts of the HPX runtime system are
-    /// properly initialized.
-    class HPX_EXPORT runtime_local : public runtime
-    {
-    private:
-        // avoid warnings about usage of this in member initializer list
-        runtime_local* This()
-        {
-            return this;
-        }
-
-        //
-        static void default_errorsink(std::string const&);
-
-        //
-        threads::thread_result_type run_helper(
-            util::function_nonser<runtime::hpx_main_function_type> const& func,
-            int& result);
-
-        void wait_helper(
-            std::mutex& mtx, std::condition_variable& cond, bool& running);
-
-    public:
-        typedef threads::policies::callback_notifier notification_policy_type;
-
-        /// Construct a new HPX runtime instance
-        ///
-        /// \param locality_mode  [in] This is the mode the given runtime
-        ///                       instance should be executed in.
-        explicit runtime_local(util::runtime_configuration& rtcfg);
-
-        /// \brief The destructor makes sure all HPX runtime services are
-        ///        properly shut down before exiting.
-        ~runtime_local();
-
-        /// \brief Start the runtime system
-        ///
-        /// \param func       [in] This is the main function of an HPX
-        ///                   application. It will be scheduled for execution
-        ///                   by the thread manager as soon as the runtime has
-        ///                   been initialized. This function is expected to
-        ///                   expose an interface as defined by the typedef
-        ///                   \a hpx_main_function_type.
-        /// \param blocking   [in] This allows to control whether this
-        ///                   call blocks until the runtime system has been
-        ///                   stopped. If this parameter is \a true the
-        ///                   function \a runtime#start will call
-        ///                   \a runtime#wait internally.
-        ///
-        /// \returns          If a blocking is a true, this function will
-        ///                   return the value as returned as the result of the
-        ///                   invocation of the function object given by the
-        ///                   parameter \p func. Otherwise it will return zero.
-        int start(util::function_nonser<hpx_main_function_type> const& func,
-            bool blocking = false) override;
-
-        /// \brief Start the runtime system
-        ///
-        /// \param blocking   [in] This allows to control whether this
-        ///                   call blocks until the runtime system has been
-        ///                   stopped. If this parameter is \a true the
-        ///                   function \a runtime#start will call
-        ///                   \a runtime#wait internally .
-        ///
-        /// \returns          If a blocking is a true, this function will
-        ///                   return the value as returned as the result of the
-        ///                   invocation of the function object given by the
-        ///                   parameter \p func. Otherwise it will return zero.
-        int start(bool blocking = false) override;
-
-        /// \brief Wait for the shutdown action to be executed
-        ///
-        /// \returns          This function will return the value as returned
-        ///                   as the result of the invocation of the function
-        ///                   object given by the parameter \p func.
-        int wait() override;
-
-        /// \brief Initiate termination of the runtime system
-        ///
-        /// \param blocking   [in] This allows to control whether this
-        ///                   call blocks until the runtime system has been
-        ///                   fully stopped. If this parameter is \a false then
-        ///                   this call will initiate the stop action but will
-        ///                   return immediately. Use a second call to stop
-        ///                   with this parameter set to \a true to wait for
-        ///                   all internal work to be completed.
-        void stop(bool blocking = true) override;
-
-        int finalize(double shutdown_timeout) override
-        {
-            return 0;
-        }
-
-        /// \brief Stop the runtime system, wait for termination
-        ///
-        /// \param blocking   [in] This allows to control whether this
-        ///                   call blocks until the runtime system has been
-        ///                   fully stopped. If this parameter is \a false then
-        ///                   this call will initiate the stop action but will
-        ///                   return immediately. Use a second call to stop
-        ///                   with this parameter set to \a true to wait for
-        ///                   all internal work to be completed.
-        void stopped(
-            bool blocking, std::condition_variable& cond, std::mutex& mtx);
-
-        /// \brief Suspend the runtime system
-        ///
-        int suspend() override;
-
-        /// \brief Resume the runtime system
-        ///
-        int resume() override;
-
-        /// \brief Report a non-recoverable error to the runtime system
-        ///
-        /// \param num_thread [in] The number of the operating system thread
-        ///                   the error has been detected in.
-        /// \param e          [in] This is an instance encapsulating an
-        ///                   exception which lead to this function call.
-        bool report_error(
-            std::size_t num_thread, std::exception_ptr const& e) override;
-
-        /// \brief Report a non-recoverable error to the runtime system
-        ///
-        /// \param e          [in] This is an instance encapsulating an
-        ///                   exception which lead to this function call.
-        ///
-        /// \note This function will retrieve the number of the current
-        ///       shepherd thread and forward to the report_error function
-        ///       above.
-        bool report_error(std::exception_ptr const& e) override;
-
-        /// \brief Run the HPX runtime system, use the given function for the
-        ///        main \a thread and block waiting for all threads to
-        ///        finish
-        ///
-        /// \param func       [in] This is the main function of an HPX
-        ///                   application. It will be scheduled for execution
-        ///                   by the thread manager as soon as the runtime has
-        ///                   been initialized. This function is expected to
-        ///                   expose an interface as defined by the typedef
-        ///                   \a hpx_main_function_type. This parameter is
-        ///                   optional and defaults to none main thread
-        ///                   function, in which case all threads have to be
-        ///                   scheduled explicitly.
-        ///
-        /// \note             The parameter \a func is optional. If no function
-        ///                   is supplied, the runtime system will simply wait
-        ///                   for the shutdown action without explicitly
-        ///                   executing any main thread.
-        ///
-        /// \returns          This function will return the value as returned
-        ///                   as the result of the invocation of the function
-        ///                   object given by the parameter \p func.
-        int run(
-            util::function_nonser<hpx_main_function_type> const& func) override;
-
-        /// \brief Run the HPX runtime system, initially use the given number
-        ///        of (OS) threads in the thread-manager and block waiting for
-        ///        all threads to finish.
-        ///
-        /// \returns          This function will always return 0 (zero).
-        int run() override;
-
-        /// Rethrow any stored exception (to be called after stop())
-        void rethrow_exception() override;
-
-        /// \brief Allow access to the thread manager instance used by the HPX
-        ///        runtime.
-        hpx::threads::threadmanager& get_thread_manager() override
-        {
-            return *thread_manager_;
-        }
-
-        /// \brief Returns a string of the locality endpoints (usable in debug output)
-        std::string here() const override
-        {
-            return "/dev/null";
-        }
-
-        /// Add a function to be executed inside a HPX thread before hpx_main
-        /// but guaranteed to be executed before any startup function registered
-        /// with \a add_startup_function.
-        ///
-        /// \param  f   The function 'f' will be called from inside a HPX
-        ///             thread before hpx_main is executed. This is very useful
-        ///             to setup the runtime environment of the application
-        ///             (install performance counters, etc.)
-        ///
-        /// \note       The difference to a startup function is that all
-        ///             pre-startup functions will be (system-wide) executed
-        ///             before any startup function.
-        void add_pre_startup_function(startup_function_type f) override;
-
-        /// Add a function to be executed inside a HPX thread before hpx_main
-        ///
-        /// \param  f   The function 'f' will be called from inside a HPX
-        ///             thread before hpx_main is executed. This is very useful
-        ///             to setup the runtime environment of the application
-        ///             (install performance counters, etc.)
-        void add_startup_function(startup_function_type f) override;
-
-        /// Add a function to be executed inside a HPX thread during
-        /// hpx::finalize, but guaranteed before any of teh shutdown functions
-        /// is executed.
-        ///
-        /// \param  f   The function 'f' will be called from inside a HPX
-        ///             thread while hpx::finalize is executed. This is very
-        ///             useful to tear down the runtime environment of the
-        ///             application (uninstall performance counters, etc.)
-        ///
-        /// \note       The difference to a shutdown function is that all
-        ///             pre-shutdown functions will be (system-wide) executed
-        ///             before any shutdown function.
-        void add_pre_shutdown_function(shutdown_function_type f) override;
-
-        /// Add a function to be executed inside a HPX thread during hpx::finalize
-        ///
-        /// \param  f   The function 'f' will be called from inside a HPX
-        ///             thread while hpx::finalize is executed. This is very
-        ///             useful to tear down the runtime environment of the
-        ///             application (uninstall performance counters, etc.)
-        void add_shutdown_function(shutdown_function_type f) override;
-
-        /// Access one of the internal thread pools (io_service instances) HPX
-        /// is using to perform specific tasks. The three possible values for
-        /// the argument \p name are "main_pool", "io_pool" , and "timer_pool".
-        /// For any other argument value the function will return zero.
-        hpx::util::io_service_pool* get_thread_pool(char const* name) override;
-
-        /// Register an external OS-thread with HPX
-        bool register_thread(char const* name, std::size_t num = 0,
-            bool service_thread = true, error_code& ec = throws) override;
-
-        /// Unregister an external OS-thread with HPX
-        bool unregister_thread() override;
-
-        /// Generate a new notification policy instance for the given thread
-        /// name prefix
-        notification_policy_type get_notification_policy(
-            char const* prefix) override;
-
-    private:
-        void deinit_tss(char const* context, std::size_t num);
-
-        void init_tss_ex(std::string const& locality, char const* context,
-            std::size_t local_thread_num, std::size_t global_thread_num,
-            char const* pool_name, char const* postfix, bool service_thread,
-            error_code& ec);
-
-        void init_tss(char const* context, std::size_t local_thread_num,
-            std::size_t global_thread_num, char const* pool_name,
-            char const* postfix, bool service_thread);
 
     private:
         util::unique_id_ranges id_pool_;
@@ -610,7 +539,6 @@ namespace hpx {
         notification_policy_type notifier_;
         std::unique_ptr<hpx::threads::threadmanager> thread_manager_;
 
-        std::mutex mtx_;
         std::exception_ptr exception_;
 
         std::list<startup_function_type> pre_startup_functions_;

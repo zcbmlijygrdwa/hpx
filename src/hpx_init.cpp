@@ -752,10 +752,10 @@ namespace hpx
                     resource::get_partitioner().get_command_line_switches();
 
                 // Build and configure this runtime instance.
-#if 1
+#if 0
                 using runtime_type = hpx::runtime_distributed;
 #else
-                using runtime_type = hpx::runtime_local;
+                using runtime_type = hpx::runtime;
 #endif
                 runtime_type* rt_impl = new runtime_type(cms.rtcfg_);
                 std::unique_ptr<hpx::runtime> rt(rt_impl);
