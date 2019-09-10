@@ -322,7 +322,7 @@ namespace hpx {
         std::string here() const override
         {
             std::ostringstream strm;
-            strm << get_runtime_distributed().endpoints();
+            strm << endpoints();
             return strm.str();
         }
 
