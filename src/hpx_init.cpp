@@ -21,6 +21,7 @@
 #include <hpx/hpx_user_main_config.hpp>
 #include <hpx/logging.hpp>
 #include <hpx/performance_counters/counters.hpp>
+#include <hpx/runtime.hpp>
 #include <hpx/runtime/actions/plain_action.hpp>
 #include <hpx/runtime/agas/interface.hpp>
 #include <hpx/runtime/components/runtime_support.hpp>
@@ -30,7 +31,6 @@
 #include <hpx/runtime/shutdown_function.hpp>
 #include <hpx/runtime/startup_function.hpp>
 #include <hpx/runtime/threads/policies/schedulers.hpp>
-#include <hpx/runtime.hpp>
 #include <hpx/runtime_distributed.hpp>
 #include <hpx/testing.hpp>
 #include <hpx/util/apex.hpp>
@@ -39,8 +39,8 @@
 #include <hpx/util/debugging.hpp>
 #include <hpx/util/query_counters.hpp>
 
-#include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/split.hpp>
 #include <boost/lexical_cast.hpp>
 
 #include <hpx/program_options/options_description.hpp>
@@ -410,142 +410,179 @@ namespace hpx
             hpx::program_options::variables_map& vm,
             bool print_counters_locally)
         {
-            if (vm.count("hpx:list-counters")) {
-                // Print the names of all registered performance counters.
-                std::string option(vm["hpx:list-counters"].as<std::string>());
-                if (0 == std::string("minimal").find(option))
-                    rt.add_startup_function(&list_counter_names_minimal);
-                else if (0 == std::string("full").find(option))
-                    rt.add_startup_function(&list_counter_names_full);
-                else {
-                    std::string msg ("Invalid command line option value"
-                        "for --hpx:list-counters: ");
-                    msg += option;
-                    msg += ", allowed values are 'minimal' and 'full'";
-                    throw detail::command_line_error(msg.c_str());
-                }
-            }
-            if (vm.count("hpx:list-counter-infos")) {
-                // Print info about all registered performance counters.
-                std::string option(vm["hpx:list-counter-infos"].as<std::string>());
-                if (0 == std::string("minimal").find(option))
-                    rt.add_startup_function(&list_counter_infos_minimal);
-                else if (0 == std::string("full").find(option))
-                    rt.add_startup_function(&list_counter_infos_full);
-                else {
-                    std::string msg ("Invalid command line option value"
-                        "for --hpx:list-counter-infos: ");
-                    msg += option;
-                    msg += ", allowed values are 'minimal' and 'full'";
-                    throw detail::command_line_error(msg.c_str());
-                }
-            }
-            if (vm.count("hpx:list-symbolic-names")) {
-                // Print all registered symbolic names.
-                rt.add_startup_function(&list_symbolic_names);
-            }
-            if (vm.count("hpx:list-component-types")) {
-                // Print all registered component types.
-                rt.add_startup_function(&list_component_types);
-            }
-
-            if (vm.count("hpx:print-counter") || vm.count("hpx:print-counter-reset"))
+            runtime_distributed* rtd =
+                dynamic_cast<hpx::runtime_distributed*>(&rt);
+            if (rtd != nullptr)
             {
-                std::size_t interval = 0;
-                if (vm.count("hpx:print-counter-interval"))
-                    interval = vm["hpx:print-counter-interval"].as<std::size_t>();
-
-                std::vector<std::string> counters;
-                if (vm.count("hpx:print-counter"))
+                if (vm.count("hpx:list-counters"))
                 {
-                    counters = vm["hpx:print-counter"]
-                        .as<std::vector<std::string> >();
-                }
-                std::vector<std::string> reset_counters;
-                if (vm.count("hpx:print-counter-reset"))
-                {
-                    reset_counters = vm["hpx:print-counter-reset"]
-                        .as<std::vector<std::string> >();
-                }
-
-                std::vector<std::string> counter_shortnames;
-                std::string counter_format("normal");
-                if (vm.count("hpx:print-counter-format")) {
-                    counter_format = vm["hpx:print-counter-format"].as<std::string>();
-                    if (counter_format == "csv-short"){
-                        for (std::size_t i = 0; i != counters.size() ; ++i) {
-                            std::vector<std::string> entry;
-                            boost::algorithm::split(entry, counters[i],
-                                boost::algorithm::is_any_of(","),
-                                boost::algorithm::token_compress_on);
-
-                            if (entry.size() != 2)
-                            {
-                                throw detail::command_line_error(
-                                    "Invalid format for command line option "
-                                    "--hpx:print-counter-format=csv-short");
-                            }
-
-                            counter_shortnames.push_back(entry[0]);
-                            counters[i] = entry[1];
-                        }
+                    // Print the names of all registered performance counters.
+                    std::string option(
+                        vm["hpx:list-counters"].as<std::string>());
+                    if (0 == std::string("minimal").find(option))
+                        rt.add_startup_function(&list_counter_names_minimal);
+                    else if (0 == std::string("full").find(option))
+                        rt.add_startup_function(&list_counter_names_full);
+                    else
+                    {
+                        std::string msg("Invalid command line option value"
+                                        "for --hpx:list-counters: ");
+                        msg += option;
+                        msg += ", allowed values are 'minimal' and 'full'";
+                        throw detail::command_line_error(msg.c_str());
                     }
                 }
-
-                bool csv_header = true;
-                if(vm.count("hpx:no-csv-header"))
-                    csv_header = false;
-
-                std::string destination("cout");
-                if (vm.count("hpx:print-counter-destination"))
-                    destination = vm["hpx:print-counter-destination"].as<std::string>();
-
-                // schedule the query function at startup, which will schedule
-                // itself to run after the given interval
-                std::shared_ptr<util::query_counters> qc =
-                    std::make_shared<util::query_counters>(
-                        std::ref(counters), std::ref(reset_counters), interval,
-                        destination, counter_format, counter_shortnames, csv_header,
-                        print_counters_locally);
-
-                // schedule to print counters at shutdown, if requested
-                if (get_config_entry("hpx.print_counter.shutdown", "0") == "1")
+                if (vm.count("hpx:list-counter-infos"))
                 {
-                    // schedule to run at shutdown
-                    rt.add_pre_shutdown_function(
-                        util::bind_front(&util::query_counters::evaluate, qc));
+                    // Print info about all registered performance counters.
+                    std::string option(
+                        vm["hpx:list-counter-infos"].as<std::string>());
+                    if (0 == std::string("minimal").find(option))
+                        rt.add_startup_function(&list_counter_infos_minimal);
+                    else if (0 == std::string("full").find(option))
+                        rt.add_startup_function(&list_counter_infos_full);
+                    else
+                    {
+                        std::string msg("Invalid command line option value"
+                                        "for --hpx:list-counter-infos: ");
+                        msg += option;
+                        msg += ", allowed values are 'minimal' and 'full'";
+                        throw detail::command_line_error(msg.c_str());
+                    }
+                }
+                if (vm.count("hpx:list-symbolic-names"))
+                {
+                    // Print all registered symbolic names.
+                    rt.add_startup_function(&list_symbolic_names);
+                }
+                if (vm.count("hpx:list-component-types"))
+                {
+                    // Print all registered component types.
+                    rt.add_startup_function(&list_component_types);
                 }
 
-                // schedule to start all counters
-                rt.add_startup_function(util::bind_front(&start_counters, qc));
+                if (vm.count("hpx:print-counter") ||
+                    vm.count("hpx:print-counter-reset"))
+                {
+                    std::size_t interval = 0;
+                    if (vm.count("hpx:print-counter-interval"))
+                        interval =
+                            vm["hpx:print-counter-interval"].as<std::size_t>();
 
-                // register the query_counters object with the runtime system
-                rt.register_query_counters(qc);
-            }
-            else if (vm.count("hpx:print-counter-interval")) {
-                throw detail::command_line_error("Invalid command line option "
-                    "--hpx:print-counter-interval, valid in conjunction with "
-                    "--hpx:print-counter only");
-            }
-            else if (vm.count("hpx:print-counter-destination")) {
-                throw detail::command_line_error("Invalid command line option "
-                    "--hpx:print-counter-destination, valid in conjunction with "
-                    "--hpx:print-counter only");
-            }
-            else if (vm.count("hpx:print-counter-format")) {
-                throw detail::command_line_error("Invalid command line option "
-                    "--hpx:print-counter-format, valid in conjunction with "
-                    "--hpx:print-counter only");
-            }
-            else if (vm.count("hpx:print-counter-at")) {
-                throw detail::command_line_error("Invalid command line option "
-                    "--hpx:print-counter-at, valid in conjunction with "
-                    "--hpx:print-counter only");
-            }
-            else if (vm.count("hpx:reset-counters")) {
-                throw detail::command_line_error("Invalid command line option "
-                    "--hpx:reset-counters, valid in conjunction with "
-                    "--hpx:print-counter only");
+                    std::vector<std::string> counters;
+                    if (vm.count("hpx:print-counter"))
+                    {
+                        counters = vm["hpx:print-counter"]
+                                       .as<std::vector<std::string>>();
+                    }
+                    std::vector<std::string> reset_counters;
+                    if (vm.count("hpx:print-counter-reset"))
+                    {
+                        reset_counters = vm["hpx:print-counter-reset"]
+                                             .as<std::vector<std::string>>();
+                    }
+
+                    std::vector<std::string> counter_shortnames;
+                    std::string counter_format("normal");
+                    if (vm.count("hpx:print-counter-format"))
+                    {
+                        counter_format =
+                            vm["hpx:print-counter-format"].as<std::string>();
+                        if (counter_format == "csv-short")
+                        {
+                            for (std::size_t i = 0; i != counters.size(); ++i)
+                            {
+                                std::vector<std::string> entry;
+                                boost::algorithm::split(entry, counters[i],
+                                    boost::algorithm::is_any_of(","),
+                                    boost::algorithm::token_compress_on);
+
+                                if (entry.size() != 2)
+                                {
+                                    throw detail::command_line_error(
+                                        "Invalid format for command line "
+                                        "option "
+                                        "--hpx:print-counter-format=csv-short");
+                                }
+
+                                counter_shortnames.push_back(entry[0]);
+                                counters[i] = entry[1];
+                            }
+                        }
+                    }
+
+                    bool csv_header = true;
+                    if (vm.count("hpx:no-csv-header"))
+                        csv_header = false;
+
+                    std::string destination("cout");
+                    if (vm.count("hpx:print-counter-destination"))
+                        destination = vm["hpx:print-counter-destination"]
+                                          .as<std::string>();
+
+                    // schedule the query function at startup, which will schedule
+                    // itself to run after the given interval
+                    std::shared_ptr<util::query_counters> qc =
+                        std::make_shared<util::query_counters>(
+                            std::ref(counters), std::ref(reset_counters),
+                            interval, destination, counter_format,
+                            counter_shortnames, csv_header,
+                            print_counters_locally);
+
+                    // schedule to print counters at shutdown, if requested
+                    if (get_config_entry("hpx.print_counter.shutdown", "0") ==
+                        "1")
+                    {
+                        // schedule to run at shutdown
+                        rt.add_pre_shutdown_function(util::bind_front(
+                            &util::query_counters::evaluate, qc));
+                    }
+
+                    // schedule to start all counters
+
+                    rt.add_startup_function(
+                        util::bind_front(&start_counters, qc));
+
+                    // register the query_counters object with the runtime system
+                    rtd->register_query_counters(qc);
+                }
+                else if (vm.count("hpx:print-counter-interval"))
+                {
+                    throw detail::command_line_error(
+                        "Invalid command line option "
+                        "--hpx:print-counter-interval, valid in conjunction "
+                        "with "
+                        "--hpx:print-counter only");
+                }
+                else if (vm.count("hpx:print-counter-destination"))
+                {
+                    throw detail::command_line_error(
+                        "Invalid command line option "
+                        "--hpx:print-counter-destination, valid in conjunction "
+                        "with "
+                        "--hpx:print-counter only");
+                }
+                else if (vm.count("hpx:print-counter-format"))
+                {
+                    throw detail::command_line_error(
+                        "Invalid command line option "
+                        "--hpx:print-counter-format, valid in conjunction with "
+                        "--hpx:print-counter only");
+                }
+                else if (vm.count("hpx:print-counter-at"))
+                {
+                    throw detail::command_line_error(
+                        "Invalid command line option "
+                        "--hpx:print-counter-at, valid in conjunction with "
+                        "--hpx:print-counter only");
+                }
+                else if (vm.count("hpx:reset-counters"))
+                {
+                    throw detail::command_line_error(
+                        "Invalid command line option "
+                        "--hpx:reset-counters, valid in conjunction with "
+                        "--hpx:print-counter only");
+                }
             }
         }
 

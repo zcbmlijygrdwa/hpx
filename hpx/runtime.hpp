@@ -8,9 +8,7 @@
 #define HPX_RUNTIME_RUNTIME_JUN_10_2008_1012AM
 
 #include <hpx/config.hpp>
-#include <hpx/performance_counters/counters.hpp>
 #include <hpx/runtime.hpp>
-#include <hpx/runtime/naming/resolver_client.hpp>
 #include <hpx/runtime/runtime_mode.hpp>
 #include <hpx/runtime/shutdown_function.hpp>
 #include <hpx/runtime/startup_function.hpp>
@@ -21,7 +19,6 @@
 #include <hpx/state.hpp>
 #include <hpx/topology.hpp>    //! FIXME remove
 #include <hpx/topology/topology.hpp>
-#include <hpx/util/generate_unique_ids.hpp>
 #include <hpx/util/io_service_pool.hpp>
 #include <hpx/util/runtime_configuration.hpp>
 #include <hpx/util_fwd.hpp>
@@ -53,26 +50,9 @@ namespace hpx {
         extern std::list<shutdown_function_type> global_shutdown_functions;
     }    // namespace detail
 
-    // \brief Returns if HPX continues past connection signals
-    // caused by crashed nodes
-    HPX_EXPORT bool tolerate_node_faults();
     namespace util {
         class thread_mapper;
-        class query_counters;
-        class unique_id_ranges;
     }    // namespace util
-    namespace components {
-        struct static_factory_load_data_type;
-
-        namespace server {
-            class runtime_support;
-            class HPX_EXPORT memory;
-        }    // namespace server
-    }        // namespace components
-
-    namespace performance_counters {
-        class registry;
-    }
 
     ///////////////////////////////////////////////////////////////////////////
     class HPX_EXPORT runtime
@@ -164,14 +144,6 @@ namespace hpx {
         /// \brief Return the system uptime measure on the thread executing this call
         static std::uint64_t get_system_uptime();
 
-        /// \brief Allow access to the registry counter registry instance used
-        ///        by the HPX runtime.
-        performance_counters::registry& get_counter_registry();
-
-        /// \brief Allow access to the registry counter registry instance used
-        ///        by the HPX runtime.
-        performance_counters::registry const& get_counter_registry() const;
-
         /// \brief Return a reference to the internal PAPI thread manager
         util::thread_mapper& get_thread_mapper();
 
@@ -184,10 +156,6 @@ namespace hpx {
             std::string const& locality_basename, std::uint32_t num_threads);
 
         std::uint32_t assign_cores();
-
-        /// \brief Install all performance counters related to this runtime
-        ///        instance
-        void register_counter_types();
 
         /// \brief Run the HPX runtime system, use the given function for the
         ///        main \a thread and block waiting for all threads to
@@ -370,8 +338,7 @@ namespace hpx {
         /// for the argument \p name are "main_pool", "io_pool", "parcel_pool",
         /// and "timer_pool". For any other argument value the function will
         /// return zero.
-        virtual hpx::util::io_service_pool* get_thread_pool(
-            char const* name);
+        virtual hpx::util::io_service_pool* get_thread_pool(char const* name);
 
         /// \brief Register an external OS-thread with HPX
         ///
@@ -425,21 +392,6 @@ namespace hpx {
         typedef threads::policies::callback_notifier notification_policy_type;
         virtual notification_policy_type get_notification_policy(
             char const* prefix);
-
-        ///////////////////////////////////////////////////////////////////////
-        // management API for active performance counters
-        void register_query_counters(
-            std::shared_ptr<util::query_counters> const& active_counters);
-
-        void start_active_counters(error_code& ec = throws);
-        void stop_active_counters(error_code& ec = throws);
-        void reset_active_counters(error_code& ec = throws);
-        void reinit_active_counters(bool reset = true, error_code& ec = throws);
-        void evaluate_active_counters(bool reset = false,
-            char const* description = nullptr, error_code& ec = throws);
-
-        // stop periodic evaluation of counters during shutdown
-        void stop_evaluating_counters();
 
         notification_policy_type::on_startstop_type on_start_func() const;
         notification_policy_type::on_startstop_type on_stop_func() const;
@@ -498,8 +450,6 @@ namespace hpx {
         mutable std::mutex mtx_;
 
         util::runtime_configuration ini_;
-        std::shared_ptr<performance_counters::registry> counters_;
-        std::shared_ptr<util::query_counters> active_counters_;
 
         long instance_number_;
         static std::atomic<int> instance_number_counter_;
@@ -523,7 +473,6 @@ namespace hpx {
         notification_policy_type::on_error_type on_error_func_;
 
     private:
-        util::unique_id_ranges id_pool_;
         runtime_mode mode_;
         int result_;
         notification_policy_type main_pool_notifier_;

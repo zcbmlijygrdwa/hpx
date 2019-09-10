@@ -54,7 +54,7 @@ static void register_counter_types()
     lbt_ << "(2nd stage) pre_main: registered AGAS client-side "
             "performance counter types";
 
-    get_runtime().register_counter_types();
+    get_runtime_distributed().register_counter_types();
     lbt_ << "(2nd stage) pre_main: registered runtime performance "
             "counter types";
 

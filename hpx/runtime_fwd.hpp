@@ -11,6 +11,7 @@
 
 #include <hpx/config.hpp>
 #include <hpx/errors.hpp>
+#include <hpx/functional/function.hpp>
 #include <hpx/runtime/basename_registration_fwd.hpp>
 #include <hpx/runtime/config_entry.hpp>
 #include <hpx/runtime/find_localities.hpp>
@@ -28,20 +29,18 @@
 #include <hpx/runtime/set_parcel_write_handler.hpp>
 #include <hpx/runtime/shutdown_function.hpp>
 #include <hpx/runtime/startup_function.hpp>
-#include <hpx/functional/function.hpp>
 #include <hpx/util_fwd.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <string>
 
-namespace hpx
-{
+namespace hpx {
     /// Register the current kernel thread with HPX, this should be done once
     /// for each external OS-thread intended to invoke HPX functionality.
     /// Calling this function more than once will silently fail.
-    HPX_API_EXPORT bool register_thread(runtime* rt, char const* name,
-        error_code& ec = throws);
+    HPX_API_EXPORT bool register_thread(
+        runtime* rt, char const* name, error_code& ec = throws);
 
     /// Unregister the thread from HPX, this should be done once in
     /// the end before the external thread exists.
@@ -58,8 +57,7 @@ namespace hpx
     HPX_API_EXPORT bool register_on_exit(util::function_nonser<void()> const&);
 
     /// \cond NOINTERNAL
-    namespace util
-    {
+    namespace util {
         struct binary_filter;
 
         /// \brief Expand INI variables in a string
@@ -67,7 +65,7 @@ namespace hpx
 
         /// \brief Expand INI variables in a string
         HPX_API_EXPORT void expand(std::string& expand);
-    }
+    }    // namespace util
 
     ///////////////////////////////////////////////////////////////////////////
     HPX_API_EXPORT bool is_scheduler_numa_sensitive();
@@ -91,7 +89,6 @@ namespace hpx
     /// \note   This function needs to be executed on a HPX-thread. It will
     ///         return false otherwise.
     HPX_API_EXPORT bool is_starting();
-
 
     ///////////////////////////////////////////////////////////////////////////
     /// \brief Test if HPX runs in fault-tolerant mode
@@ -264,6 +261,6 @@ namespace hpx
         char const* binary_filter_type, bool compress,
         serialization::binary_filter* next_filter = nullptr,
         error_code& ec = throws);
-}
+}    // namespace hpx
 
 #endif

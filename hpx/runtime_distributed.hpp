@@ -34,17 +34,39 @@
 
 #include <hpx/config/warnings_prefix.hpp>
 
-namespace hpx
-{
+namespace hpx {
+    // \brief Returns if HPX continues past connection signals
+    // caused by crashed nodes
+    HPX_EXPORT bool tolerate_node_faults();
+
+    namespace util {
+        class query_counters;
+        class unique_id_ranges;
+    }    // namespace util
+    namespace components {
+        struct static_factory_load_data_type;
+
+        namespace server {
+            class runtime_support;
+            class HPX_EXPORT memory;
+        }    // namespace server
+    }        // namespace components
+
+    namespace performance_counters {
+        class registry;
+    }
+
     /// The \a runtime class encapsulates the HPX runtime system in a simple to
     /// use way. It makes sure all required parts of the HPX runtime system are
     /// properly initialized.
-    class HPX_EXPORT runtime_distributed
-      : public runtime
+    class HPX_EXPORT runtime_distributed : public runtime
     {
     private:
         // avoid warnings about usage of this in member initializer list
-        runtime_distributed* This() { return this; }
+        runtime_distributed* This()
+        {
+            return this;
+        }
 
         //
         static void default_errorsink(std::string const&);
@@ -54,8 +76,8 @@ namespace hpx
             util::function_nonser<runtime::hpx_main_function_type> const& func,
             int& result);
 
-        void wait_helper(std::mutex& mtx, std::condition_variable& cond,
-            bool& running);
+        void wait_helper(
+            std::mutex& mtx, std::condition_variable& cond, bool& running);
 
     public:
         typedef threads::policies::callback_notifier notification_policy_type;
@@ -64,7 +86,7 @@ namespace hpx
         ///
         /// \param locality_mode  [in] This is the mode the given runtime
         ///                       instance should be executed in.
-        explicit runtime_distributed(util::runtime_configuration & rtcfg);
+        explicit runtime_distributed(util::runtime_configuration& rtcfg);
 
         /// \brief The destructor makes sure all HPX runtime services are
         ///        properly shut down before exiting.
@@ -89,7 +111,7 @@ namespace hpx
         ///                   invocation of the function object given by the
         ///                   parameter \p func. Otherwise it will return zero.
         int start(util::function_nonser<hpx_main_function_type> const& func,
-                bool blocking = false) override;
+            bool blocking = false) override;
 
         /// \brief Start the runtime system
         ///
@@ -142,8 +164,8 @@ namespace hpx
         ///                   return immediately. Use a second call to stop
         ///                   with this parameter set to \a true to wait for
         ///                   all internal work to be completed.
-        void stopped(bool blocking, std::condition_variable& cond,
-            std::mutex& mtx);
+        void stopped(
+            bool blocking, std::condition_variable& cond, std::mutex& mtx);
 
         /// \brief Suspend the runtime system
         ///
@@ -159,8 +181,8 @@ namespace hpx
         ///                   the error has been detected in.
         /// \param e          [in] This is an instance encapsulating an
         ///                   exception which lead to this function call.
-        bool report_error(std::size_t num_thread,
-            std::exception_ptr const& e) override;
+        bool report_error(
+            std::size_t num_thread, std::exception_ptr const& e) override;
 
         /// \brief Report a non-recoverable error to the runtime system
         ///
@@ -209,12 +231,39 @@ namespace hpx
 
         ///////////////////////////////////////////////////////////////////////
         template <typename F>
-        components::server::console_error_dispatcher::sink_type
-        set_error_sink(F&& sink)
+        components::server::console_error_dispatcher::sink_type set_error_sink(
+            F&& sink)
         {
-            return components::server::get_error_dispatcher().
-                set_error_sink(std::forward<F>(sink));
+            return components::server::get_error_dispatcher().set_error_sink(
+                std::forward<F>(sink));
         }
+
+        /// \brief Allow access to the registry counter registry instance used
+        ///        by the HPX runtime.
+        performance_counters::registry& get_counter_registry();
+
+        /// \brief Allow access to the registry counter registry instance used
+        ///        by the HPX runtime.
+        performance_counters::registry const& get_counter_registry() const;
+
+        /// \brief Install all performance counters related to this runtime
+        ///        instance
+        void register_counter_types();
+
+        ///////////////////////////////////////////////////////////////////////
+        // management API for active performance counters
+        void register_query_counters(
+            std::shared_ptr<util::query_counters> const& active_counters);
+
+        void start_active_counters(error_code& ec = throws);
+        void stop_active_counters(error_code& ec = throws);
+        void reset_active_counters(error_code& ec = throws);
+        void reinit_active_counters(bool reset = true, error_code& ec = throws);
+        void evaluate_active_counters(bool reset = false,
+            char const* description = nullptr, error_code& ec = throws);
+
+        // stop periodic evaluation of counters during shutdown
+        void stop_evaluating_counters();
 
         ///////////////////////////////////////////////////////////////////////
         /// \brief Allow access to the AGAS client instance used by the HPX
@@ -396,8 +445,10 @@ namespace hpx
 
         std::unique_ptr<components::server::memory> memory_;
         std::unique_ptr<components::server::runtime_support> runtime_support_;
+        std::shared_ptr<performance_counters::registry> counters_;
+        std::shared_ptr<util::query_counters> active_counters_;
     };
-}
+}    // namespace hpx
 
 #include <hpx/config/warnings_suffix.hpp>
 
