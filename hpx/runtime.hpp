@@ -439,9 +439,11 @@ namespace hpx {
         }
 
         //
+    protected:
         static void default_errorsink(std::string const&);
 
         //
+    protected:
         threads::thread_result_type run_helper(
             util::function_nonser<runtime::hpx_main_function_type> const& func,
             int& result);

@@ -322,39 +322,7 @@ namespace hpx {
             evaluate_active_counters(reset, "startup", ec);
         }
 
-        // Connect back to given latch if specified
-        std::string connect_back_to(
-            get_config_entry("hpx.on_startup.wait_on_latch", ""));
-        if (!connect_back_to.empty())
-        {
-            lbt_ << "(5th stage) runtime_distributed::run_helper: about to "
-                    "synchronize with latch: "
-                 << connect_back_to;
-
-            // inform launching process that this locality is up and running
-            hpx::lcos::latch l;
-            l.connect_to(connect_back_to);
-            l.count_down_and_wait();
-
-            lbt_ << "(5th stage) runtime_distributed::run_helper: "
-                    "synchronized with latch: "
-                 << connect_back_to;
-        }
-
-        // Now, execute the user supplied thread function (hpx_main)
-        if (!!func)
-        {
-            lbt_ << "(last stage) runtime_distributed::run_helper: about to "
-                    "invoke hpx_main";
-
-            // Change our thread description, as we're about to call hpx_main
-            threads::set_thread_description(threads::get_self_id(), "hpx_main");
-
-            // Call hpx_main
-            result = func();
-        }
-        return threads::thread_result_type(
-            threads::terminated, threads::invalid_thread_id);
+        return runtime::run_helper(func, result);
     }
 
     int runtime_distributed::start(
@@ -1183,15 +1151,6 @@ namespace hpx {
         runtime_distributed* rtd = get_runtime_distributed_ptr();
         if (nullptr != rtd)
             rtd->stop_evaluating_counters();
-    }
-
-    ///////////////////////////////////////////////////////////////////////////
-    void runtime_distributed::default_errorsink(std::string const& msg)
-    {
-        // log the exception information in any case
-        LERR_(always) << "default_errorsink: unhandled exception: " << msg;
-
-        std::cerr << msg << std::endl;
     }
 
     ///////////////////////////////////////////////////////////////////////////
