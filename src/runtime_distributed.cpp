@@ -5,15 +5,14 @@
 //  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 #include <hpx/config.hpp>
-#include <hpx/performance_counters/counters.hpp>
-
-#include <hpx/config.hpp>
 #include <hpx/assertion.hpp>
 #include <hpx/concurrency/thread_name.hpp>
 #include <hpx/custom_exception_info.hpp>
+#include <hpx/datastructures/tuple.hpp>
 #include <hpx/errors.hpp>
 #include <hpx/functional.hpp>
 #include <hpx/lcos/barrier.hpp>
+#include <hpx/lcos/detail/barrier_node.hpp>
 #include <hpx/lcos/latch.hpp>
 #include <hpx/logging.hpp>
 #include <hpx/performance_counters/counter_creators.hpp>
@@ -32,7 +31,11 @@
 #include <hpx/runtime/components/server/runtime_support.hpp>
 #include <hpx/runtime/components/server/simple_component_base.hpp>    // EXPORTS get_next_id
 #include <hpx/runtime/config_entry.hpp>
+#include <hpx/runtime/find_localities.hpp>
 #include <hpx/runtime/launch_policy.hpp>
+#include <hpx/runtime/naming/id_type.hpp>
+#include <hpx/runtime/naming/name.hpp>
+#include <hpx/runtime/naming/resolver_client.hpp>
 #include <hpx/runtime/parcelset/parcelhandler.hpp>
 #include <hpx/runtime/parcelset_fwd.hpp>
 #include <hpx/runtime/shutdown_function.hpp>
@@ -43,6 +46,7 @@
 #include <hpx/runtime/threads/policies/scheduler_mode.hpp>
 #include <hpx/runtime/threads/scoped_background_timer.hpp>
 #include <hpx/runtime/threads/threadmanager.hpp>
+#include <hpx/runtime/threads/threadmanager_counters.hpp>
 #include <hpx/runtime_distributed.hpp>
 #include <hpx/state.hpp>
 #include <hpx/thread_support/set_thread_name.hpp>
@@ -53,6 +57,7 @@
 #include <hpx/util/command_line_handling.hpp>
 #include <hpx/util/debugging.hpp>
 #include <hpx/util/query_counters.hpp>
+#include <hpx/util/runtime_configuration.hpp>
 #include <hpx/util/safe_lexical_cast.hpp>
 #include <hpx/util/static_reinit.hpp>
 #include <hpx/util/thread_mapper.hpp>
@@ -80,6 +85,187 @@
     !defined(HPX_HAVE_FIBER_BASED_COROUTINES)
 #include <io.h>
 #endif
+
+///////////////////////////////////////////////////////////////////////////////
+static void garbage_collect_non_blocking()
+{
+    hpx::agas::garbage_collect_non_blocking();
+}
+static void garbage_collect()
+{
+    hpx::agas::garbage_collect();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+namespace hpx {
+
+    ///////////////////////////////////////////////////////////////////////////////
+    // Install performance counter startup functions for core subsystems.
+    static void register_counter_types()
+    {
+        naming::get_agas_client().register_counter_types();
+        lbt_ << "(2nd stage) pre_main: registered AGAS client-side "
+                "performance counter types";
+
+        get_runtime_distributed().register_counter_types();
+        lbt_ << "(2nd stage) pre_main: registered runtime performance "
+                "counter types";
+
+        threads::register_counter_types(threads::get_thread_manager());
+        lbt_ << "(2nd stage) pre_main: registered thread-manager performance "
+                "counter types";
+
+        applier::get_applier().get_parcel_handler().register_counter_types();
+        lbt_ << "(2nd stage) pre_main: registered parcelset performance "
+                "counter types";
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////
+    extern std::vector<util::tuple<char const*, char const*>>
+        message_handler_registrations;
+
+    static void register_message_handlers()
+    {
+        runtime_distributed& rtd = get_runtime_distributed();
+        for (auto const& t : message_handler_registrations)
+        {
+            error_code ec(lightweight);
+            rtd.register_message_handler(util::get<0>(t), util::get<1>(t), ec);
+        }
+        lbt_ << "(3rd stage) pre_main: registered message handlers";
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////
+    // Implements second and third stage bootstrapping.
+    int pre_main(runtime_mode mode)
+    {
+        // Register pre-shutdown and shutdown functions to flush pending
+        // reference counting operations.
+        register_pre_shutdown_function(&::garbage_collect_non_blocking);
+        register_shutdown_function(&::garbage_collect);
+
+        using components::stubs::runtime_support;
+
+        naming::resolver_client& agas_client = naming::get_agas_client();
+        runtime& rt = get_runtime();
+
+        int exit_code = 0;
+        if (runtime_mode_connect == mode)
+        {
+            lbt_ << "(2nd stage) pre_main: locality is in connect mode, "
+                    "skipping 2nd and 3rd stage startup synchronization";
+            lbt_ << "(2nd stage) pre_main: addressing services enabled";
+
+            // Load components, so that we can use the barrier LCO.
+            exit_code = runtime_support::load_components(find_here());
+            lbt_ << "(2nd stage) pre_main: loaded components"
+                 << (exit_code ? ", application exit has been requested" : "");
+
+            // Work on registration requests for message handler plugins
+            register_message_handlers();
+
+            // Register all counter types before the startup functions are being
+            // executed.
+            register_counter_types();
+
+            rt.set_state(state_pre_startup);
+            runtime_support::call_startup_functions(find_here(), true);
+            lbt_ << "(3rd stage) pre_main: ran pre-startup functions";
+
+            rt.set_state(state_startup);
+            runtime_support::call_startup_functions(find_here(), false);
+            lbt_ << "(4th stage) pre_main: ran startup functions";
+        }
+        else
+        {
+            lbt_ << "(2nd stage) pre_main: addressing services enabled";
+
+            // Load components, so that we can use the barrier LCO.
+            exit_code = runtime_support::load_components(find_here());
+            lbt_ << "(2nd stage) pre_main: loaded components"
+                 << (exit_code ? ", application exit has been requested" : "");
+
+            // {{{ Second and third stage barrier creation.
+            if (agas_client.is_bootstrap())
+            {
+                naming::gid_type console_;
+                if (HPX_UNLIKELY(!agas_client.get_console_locality(console_)))
+                {
+                    HPX_THROW_EXCEPTION(network_error, "pre_main",
+                        "no console locality registered");
+                }
+
+                lbt_ << "(2nd stage) pre_main: creating 2nd and 3rd stage boot "
+                        "barriers";
+            }
+            else    // Hosted.
+            {
+                lbt_ << "(2nd stage) pre_main: finding 2nd and 3rd stage boot "
+                        "barriers";
+            }
+            // }}}
+
+            // create our global barrier...
+            hpx::lcos::barrier::get_global_barrier() =
+                hpx::lcos::barrier::create_global_barrier();
+
+            // Second stage bootstrap synchronizes component loading across all
+            // localities, ensuring that the component namespace tables are fully
+            // populated before user code is executed.
+            lcos::barrier::synchronize();
+            lbt_ << "(2nd stage) pre_main: passed 2nd stage boot barrier";
+
+            // Work on registration requests for message handler plugins
+            register_message_handlers();
+
+            // Register all counter types before the startup functions are being
+            // executed.
+            register_counter_types();
+
+            // Second stage bootstrap synchronizes performance counter loading
+            // across all localities.
+            lcos::barrier::synchronize();
+            lbt_ << "(3rd stage) pre_main: passed 3rd stage boot barrier";
+
+            runtime_support::call_startup_functions(find_here(), true);
+            lbt_ << "(3rd stage) pre_main: ran pre-startup functions";
+
+            // Third stage separates pre-startup and startup function phase.
+            lcos::barrier::synchronize();
+            lbt_ << "(4th stage) pre_main: passed 4th stage boot barrier";
+
+            runtime_support::call_startup_functions(find_here(), false);
+            lbt_ << "(4th stage) pre_main: ran startup functions";
+
+            // Forth stage bootstrap synchronizes startup functions across all
+            // localities. This is done after component loading to guarantee that
+            // all user code, including startup functions, are only run after the
+            // component tables are populated.
+            lcos::barrier::synchronize();
+            lbt_ << "(5th stage) pre_main: passed 4th stage boot barrier";
+        }
+
+        // Enable logging. Even if we terminate at this point we will see all
+        // pending log messages so far.
+        components::activate_logging();
+        lbt_ << "(last stage) pre_main: activated logging";
+
+        // Any error in post-command line handling or any explicit --exit command
+        // line option will cause the application to terminate at this point.
+        if (exit_code)
+        {
+            // If load_components returns false, shutdown the system. This
+            // essentially only happens if the command line contained --exit.
+            runtime_support::shutdown_all(
+                naming::get_id_from_locality_id(HPX_AGAS_BOOTSTRAP_PREFIX),
+                -1.0);
+            return exit_code;
+        }
+
+        return 0;
+    }
+
+}    // namespace hpx
 
 namespace hpx {
     namespace detail {
