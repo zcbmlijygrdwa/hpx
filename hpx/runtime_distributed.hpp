@@ -226,6 +226,15 @@ namespace hpx {
         /// \returns          This function will always return 0 (zero).
         int run() override;
 
+        bool is_networking_enabled() override
+        {
+#if defined(HPX_HAVE_NETWORKING)
+            return get_config().enable_networking();
+#else
+            return false;
+#endif
+        }
+
         /// Rethrow any stored exception (to be called after stop())
         void rethrow_exception() override;
 

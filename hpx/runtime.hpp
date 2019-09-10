@@ -257,6 +257,12 @@ namespace hpx {
             return 0;
         }
 
+        ///  \brief Return true if networking is enabled.
+        virtual bool is_networking_enabled()
+        {
+            return false;
+        }
+
         /// \brief Allow access to the thread manager instance used by the HPX
         ///        runtime.
         virtual hpx::threads::threadmanager& get_thread_manager()
