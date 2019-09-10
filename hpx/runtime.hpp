@@ -418,7 +418,7 @@ namespace hpx {
         // TODO: Rename
         void deinit_tss_2(char const* context, std::size_t num);
 
-        void init_tss_ex(std::string const& locality, char const* context,
+        void init_tss_ex(char const* context,
             std::size_t local_thread_num, std::size_t global_thread_num,
             char const* pool_name, char const* postfix, bool service_thread,
             error_code& ec);

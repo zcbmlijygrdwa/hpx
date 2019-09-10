@@ -1297,14 +1297,6 @@ namespace hpx {
 
     int runtime::suspend()
     {
-        std::uint32_t initial_num_localities = get_initial_num_localities();
-        if (initial_num_localities > 1)
-        {
-            HPX_THROW_EXCEPTION(invalid_status, "runtime::suspend",
-                "Can only suspend runtime when number of localities is 1");
-            return -1;
-        }
-
         LRT_(info) << "runtime_local: about to suspend runtime";
 
         if (state_.load() == state_sleeping)
@@ -1496,15 +1488,12 @@ namespace hpx {
         std::size_t global_thread_num, char const* pool_name,
         char const* postfix, bool service_thread)
     {
-        // prefix thread name with locality number, if needed
-        std::string locality = locality_prefix(get_config());
-
         error_code ec(lightweight);
-        return init_tss_ex(locality, context, local_thread_num,
+        return init_tss_ex(context, local_thread_num,
             global_thread_num, pool_name, postfix, service_thread, ec);
     }
 
-    void runtime::init_tss_ex(std::string const& locality, char const* context,
+    void runtime::init_tss_ex(char const* context,
         std::size_t local_thread_num, std::size_t global_thread_num,
         char const* pool_name, char const* postfix, bool service_thread,
         error_code& ec)
@@ -1515,9 +1504,7 @@ namespace hpx {
         // set the thread's name, if it's not already set
         HPX_ASSERT(detail::thread_name().empty());
 
-        std::string fullname = std::string(locality);
-        if (!locality.empty())
-            fullname += "/";
+        std::string fullname;
         fullname += context;
         if (postfix && *postfix)
             fullname += postfix;
@@ -1662,13 +1649,10 @@ namespace hpx {
         if (nullptr != get_runtime_ptr())
             return false;    // already registered
 
-        // prefix thread name with locality number, if needed
-        std::string locality = locality_prefix(get_config());
-
         std::string thread_name(name);
         thread_name += "-thread";
 
-        init_tss_ex(locality, thread_name.c_str(), global_thread_num,
+        init_tss_ex(thread_name.c_str(), global_thread_num,
             global_thread_num, "", nullptr, service_thread, ec);
 
         return !ec ? true : false;

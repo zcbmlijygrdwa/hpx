@@ -729,6 +729,7 @@ namespace hpx {
 
     int runtime_distributed::suspend()
     {
+#if defined(HPX_HAVE_NETWORKING)
         std::uint32_t initial_num_localities = get_initial_num_localities();
         if (initial_num_localities > 1)
         {
@@ -736,6 +737,7 @@ namespace hpx {
                 "Can only suspend runtime when number of localities is 1");
             return -1;
         }
+#endif
 
         LRT_(info) << "runtime_distributed: about to suspend runtime";
 
@@ -776,6 +778,7 @@ namespace hpx {
 
     int runtime_distributed::resume()
     {
+#if defined(HPX_HAVE_NETWORKING)
         std::uint32_t initial_num_localities = get_initial_num_localities();
         if (initial_num_localities > 1)
         {
@@ -783,6 +786,7 @@ namespace hpx {
                 "Can only suspend runtime when number of localities is 1");
             return -1;
         }
+#endif
 
         LRT_(info) << "runtime_distributed: about to resume runtime";
 
@@ -868,20 +872,6 @@ namespace hpx {
     bool runtime_distributed::report_error(std::exception_ptr const& e)
     {
         return report_error(hpx::get_worker_thread_num(), e);
-    }
-
-    void runtime_distributed::rethrow_exception()
-    {
-        if (state_.load() > state_running)
-        {
-            std::lock_guard<std::mutex> l(mtx_);
-            if (exception_)
-            {
-                std::exception_ptr e = exception_;
-                exception_ = std::exception_ptr();
-                std::rethrow_exception(e);
-            }
-        }
     }
 
     ///////////////////////////////////////////////////////////////////////////

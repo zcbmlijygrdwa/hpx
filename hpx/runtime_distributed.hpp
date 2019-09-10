@@ -232,9 +232,6 @@ namespace hpx {
 #endif
         }
 
-        /// Rethrow any stored exception (to be called after stop())
-        void rethrow_exception() override;
-
         ///////////////////////////////////////////////////////////////////////
         template <typename F>
         components::server::console_error_dispatcher::sink_type set_error_sink(
