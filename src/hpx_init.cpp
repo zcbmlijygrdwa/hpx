@@ -693,11 +693,9 @@ namespace hpx
 
             hpx::assertion::set_assertion_handler(&detail::assertion_handler);
             hpx::util::set_test_failure_handler(&detail::test_failure_handler);
-// TODO: This one tries to access locality information. Only enable with
-// distributed runtime.
-#if 0
+	    // TODO: This one tries to access locality information. Only enable
+	    // with distributed runtime.
             hpx::set_custom_exception_info_handler(&detail::custom_exception_info);
-#endif
             hpx::set_pre_exception_handler(&detail::pre_exception_handler);
 #if defined(HPX_HAVE_VERIFY_LOCKS)
             hpx::util::set_registered_locks_error_handler(
@@ -789,11 +787,9 @@ namespace hpx
                     resource::get_partitioner().get_command_line_switches();
 
                 // Build and configure this runtime instance.
-#if 0
+                // TODO: Provide hpx::init overloads for choosing the runtime
+                // type.
                 using runtime_type = hpx::runtime_distributed;
-#else
-                using runtime_type = hpx::runtime;
-#endif
                 runtime_type* rt_impl = new runtime_type(cms.rtcfg_);
                 std::unique_ptr<hpx::runtime> rt(rt_impl);
 

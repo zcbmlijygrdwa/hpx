@@ -290,7 +290,7 @@ namespace hpx {
 
         /// \brief Allow access to the thread manager instance used by the HPX
         ///        runtime.
-        hpx::threads::threadmanager& get_thread_manager()
+        hpx::threads::threadmanager& get_thread_manager() override
         {
             return *thread_manager_;
         }

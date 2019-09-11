@@ -76,7 +76,7 @@ namespace hpx {
         /// TODO: This is not correct...
         ///  \param locality_mode  [in] This is the mode the given runtime
         ///                       instance should be executed in.
-        runtime(util::runtime_configuration& rtcfg);
+        explicit runtime(util::runtime_configuration& rtcfg);
 
         /// \brief The destructor makes sure all HPX runtime services are
         ///        properly shut down before exiting.
