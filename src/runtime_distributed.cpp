@@ -29,7 +29,7 @@
 #include <hpx/runtime/components/server/console_error_sink.hpp>
 #include <hpx/runtime/components/server/memory.hpp>
 #include <hpx/runtime/components/server/runtime_support.hpp>
-#include <hpx/runtime/components/server/simple_component_base.hpp>    // EXPORTS get_next_id
+#include <hpx/runtime/components/server/simple_component_base.hpp>
 #include <hpx/runtime/config_entry.hpp>
 #include <hpx/runtime/find_localities.hpp>
 #include <hpx/runtime/launch_policy.hpp>
@@ -51,7 +51,7 @@
 #include <hpx/state.hpp>
 #include <hpx/thread_support/set_thread_name.hpp>
 #include <hpx/timing/high_resolution_clock.hpp>
-#include <hpx/topology/topology.hpp>
+#include <hpx/topology.hpp>
 #include <hpx/util/apex.hpp>
 #include <hpx/util/backtrace.hpp>
 #include <hpx/util/command_line_handling.hpp>

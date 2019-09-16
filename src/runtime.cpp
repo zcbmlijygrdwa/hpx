@@ -7,19 +7,16 @@
 #include <hpx/config.hpp>
 #include <hpx/assertion.hpp>
 #include <hpx/concurrency/thread_name.hpp>
-#include <hpx/custom_exception_info.hpp>
+#include <hpx/custom_exception_info.hpp>    // TODO: Remove locality information
+                                            // for local runtime
 #include <hpx/errors.hpp>
 #include <hpx/functional.hpp>
-#include <hpx/lcos/latch.hpp>
 #include <hpx/logging.hpp>
 #include <hpx/runtime.hpp>
 #include <hpx/runtime/config_entry.hpp>
-#include <hpx/runtime/launch_policy.hpp>
 #include <hpx/runtime/shutdown_function.hpp>
 #include <hpx/runtime/startup_function.hpp>
 #include <hpx/runtime/thread_hooks.hpp>
-#include <hpx/runtime/threads/coroutines/coroutine.hpp>
-#include <hpx/runtime/threads/coroutines/detail/context_impl.hpp>
 #include <hpx/runtime/threads/policies/scheduler_mode.hpp>
 #include <hpx/runtime/threads/scoped_background_timer.hpp>
 #include <hpx/runtime/threads/threadmanager.hpp>
@@ -28,7 +25,6 @@
 #include <hpx/timing/high_resolution_clock.hpp>
 #include <hpx/topology/topology.hpp>
 #include <hpx/util/apex.hpp>
-#include <hpx/util/backtrace.hpp>
 #include <hpx/util/command_line_handling.hpp>
 #include <hpx/util/debugging.hpp>
 #include <hpx/util/safe_lexical_cast.hpp>
@@ -245,7 +241,6 @@ namespace hpx {
       , on_start_func_(global_on_start_func)
       , on_stop_func_(global_on_stop_func)
       , on_error_func_(global_on_error_func)
-      , mode_(rtcfg.mode_)
       , result_(0)
       , main_pool_notifier_()
       , main_pool_(1, main_pool_notifier_, "main_pool")
@@ -1044,25 +1039,6 @@ namespace hpx {
         lbt_ << "(4th stage) runtime::run_helper: bootstrap complete";
         set_state(state_running);
 
-        // Connect back to given latch if specified
-        std::string connect_back_to(
-            get_config_entry("hpx.on_startup.wait_on_latch", ""));
-        if (!connect_back_to.empty())
-        {
-            lbt_ << "(5th stage) runtime::run_helper: about to "
-                    "synchronize with latch: "
-                 << connect_back_to;
-
-            // inform launching process that this locality is up and running
-            hpx::lcos::latch l;
-            l.connect_to(connect_back_to);
-            l.count_down_and_wait();
-
-            lbt_ << "(5th stage) runtime::run_helper: "
-                    "synchronized with latch: "
-                 << connect_back_to;
-        }
-
         // Now, execute the user supplied thread function (hpx_main)
         if (!!func)
         {
@@ -1489,14 +1465,13 @@ namespace hpx {
         char const* postfix, bool service_thread)
     {
         error_code ec(lightweight);
-        return init_tss_ex(context, local_thread_num,
-            global_thread_num, pool_name, postfix, service_thread, ec);
+        return init_tss_ex(context, local_thread_num, global_thread_num,
+            pool_name, postfix, service_thread, ec);
     }
 
-    void runtime::init_tss_ex(char const* context,
-        std::size_t local_thread_num, std::size_t global_thread_num,
-        char const* pool_name, char const* postfix, bool service_thread,
-        error_code& ec)
+    void runtime::init_tss_ex(char const* context, std::size_t local_thread_num,
+        std::size_t global_thread_num, char const* pool_name,
+        char const* postfix, bool service_thread, error_code& ec)
     {
         // initialize our TSS
         this->runtime::init_tss();
@@ -1652,8 +1627,8 @@ namespace hpx {
         std::string thread_name(name);
         thread_name += "-thread";
 
-        init_tss_ex(thread_name.c_str(), global_thread_num,
-            global_thread_num, "", nullptr, service_thread, ec);
+        init_tss_ex(thread_name.c_str(), global_thread_num, global_thread_num,
+            "", nullptr, service_thread, ec);
 
         return !ec ? true : false;
     }

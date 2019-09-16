@@ -17,10 +17,10 @@
 #include <hpx/runtime/threads/threadmanager.hpp>
 #include <hpx/runtime_fwd.hpp>
 #include <hpx/state.hpp>
-#include <hpx/topology.hpp>    //! FIXME remove
-#include <hpx/topology/topology.hpp>
+#include <hpx/topology.hpp>
 #include <hpx/util/io_service_pool.hpp>
 #include <hpx/util/runtime_configuration.hpp>
+#include <hpx/util/thread_mapper.hpp>
 #include <hpx/util_fwd.hpp>
 
 #include <atomic>
@@ -49,10 +49,6 @@ namespace hpx {
         extern std::list<shutdown_function_type> global_pre_shutdown_functions;
         extern std::list<shutdown_function_type> global_shutdown_functions;
     }    // namespace detail
-
-    namespace util {
-        class thread_mapper;
-    }    // namespace util
 
     ///////////////////////////////////////////////////////////////////////////
     class HPX_EXPORT runtime
@@ -418,10 +414,9 @@ namespace hpx {
         // TODO: Rename
         void deinit_tss_2(char const* context, std::size_t num);
 
-        void init_tss_ex(char const* context,
-            std::size_t local_thread_num, std::size_t global_thread_num,
-            char const* pool_name, char const* postfix, bool service_thread,
-            error_code& ec);
+        void init_tss_ex(char const* context, std::size_t local_thread_num,
+            std::size_t global_thread_num, char const* pool_name,
+            char const* postfix, bool service_thread, error_code& ec);
 
         // TODO: Rename
         void init_tss_2(char const* context, std::size_t local_thread_num,
@@ -481,7 +476,6 @@ namespace hpx {
         notification_policy_type::on_error_type on_error_func_;
 
     private:
-        runtime_mode mode_;
         int result_;
         notification_policy_type main_pool_notifier_;
         util::io_service_pool main_pool_;

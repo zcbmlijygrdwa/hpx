@@ -12,6 +12,7 @@
 #include <hpx/runtime.hpp>
 #include <hpx/runtime/applier/applier.hpp>
 #include <hpx/runtime/components/server/console_error_sink_singleton.hpp>
+#include <hpx/runtime/components/server/memory.hpp>
 #include <hpx/runtime/components/server/runtime_support.hpp>
 #include <hpx/runtime/naming/resolver_client.hpp>
 #include <hpx/runtime/parcelset/locality.hpp>
@@ -20,6 +21,7 @@
 #include <hpx/runtime/threads/policies/callback_notifier.hpp>
 #include <hpx/util/generate_unique_ids.hpp>
 #include <hpx/util/io_service_pool.hpp>
+#include <hpx/util/query_counters.hpp>
 #include <hpx/util_fwd.hpp>
 
 #include <condition_variable>
@@ -38,23 +40,6 @@ namespace hpx {
     // \brief Returns if HPX continues past connection signals
     // caused by crashed nodes
     HPX_EXPORT bool tolerate_node_faults();
-
-    namespace util {
-        class query_counters;
-        class unique_id_ranges;
-    }    // namespace util
-    namespace components {
-        struct static_factory_load_data_type;
-
-        namespace server {
-            class runtime_support;
-            class HPX_EXPORT memory;
-        }    // namespace server
-    }        // namespace components
-
-    namespace performance_counters {
-        class registry;
-    }
 
     /// The \a runtime class encapsulates the HPX runtime system in a simple to
     /// use way. It makes sure all required parts of the HPX runtime system are
