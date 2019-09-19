@@ -19,6 +19,7 @@ set(HPX_LIBS
   concepts
   concurrency
   config
+  coroutines
   datastructures
   debugging
   errors
@@ -117,4 +118,3 @@ configure_file(
   "${PROJECT_SOURCE_DIR}/cmake/templates/config_defines_strings_modules.hpp.in"
   "${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/hpx/config/config_defines_strings_modules.hpp"
   @ONLY)
-
