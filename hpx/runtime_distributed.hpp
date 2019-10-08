@@ -395,6 +395,43 @@ namespace hpx {
         notification_policy_type get_notification_policy(
             char const* prefix) override;
 
+        std::uint32_t get_locality_id(error_code& ec) override
+        {
+            return agas::get_locality_id(ec);
+        }
+
+        std::size_t get_num_worker_threads() override
+        {
+            error_code ec(lightweight);
+            return static_cast<std::size_t>(
+                agas_client_.get_num_overall_threads(ec));
+        }
+
+        std::uint32_t get_num_localities(hpx::launch::sync_policy, error_code& ec) override
+        {
+            return agas_client_.get_num_localities(ec);
+        }
+
+        std::uint32_t get_initial_num_localities() override
+        {
+            return get_config().get_num_localities();
+        }
+
+        lcos::future<std::uint32_t> get_num_localities() override
+        {
+            return agas_client_.get_num_localities_async();
+        }
+
+        std::uint32_t get_num_localities(hpx::launch::sync_policy, components::component_type type, error_code& ec)
+        {
+            return agas_client_.get_num_localities(type, ec);
+        }
+
+        lcos::future<std::uint32_t> get_num_localities(components::component_type type)
+        {
+            return agas_client_.get_num_localities_async(type);
+        }
+
     private:
         void deinit_tss(char const* context, std::size_t num);
 

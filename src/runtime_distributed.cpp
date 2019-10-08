@@ -1771,74 +1771,32 @@ namespace hpx {
         return locality_ids.front();
     }
 
-    /// \brief Return the number of localities which are currently registered
-    ///        for the running application.
-    std::uint32_t get_num_localities(hpx::launch::sync_policy, error_code& ec)
-    {
-        if (nullptr == hpx::get_runtime_distributed_ptr())
-            return 0;
-
-        return get_runtime_distributed().get_agas_client().get_num_localities(
-            ec);
-    }
-
-    std::uint32_t get_initial_num_localities()
-    {
-        if (nullptr == hpx::get_runtime_ptr())
-            return 0;
-
-        return get_runtime().get_config().get_num_localities();
-    }
-
     std::uint32_t get_num_localities(hpx::launch::sync_policy,
         components::component_type type, error_code& ec)
     {
-        if (nullptr == hpx::get_runtime_ptr())
+        runtime_distributed* rt = get_runtime_distributed_ptr();
+        if (nullptr == rt)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_num_localities",
+                "the runtime system has not been initialized yet");
             return 0;
+        }
 
-        return get_runtime_distributed().get_agas_client().get_num_localities(
-            type, ec);
-    }
-
-    lcos::future<std::uint32_t> get_num_localities()
-    {
-        if (nullptr == hpx::get_runtime_ptr())
-            return lcos::make_ready_future<std::uint32_t>(0);
-
-        return get_runtime_distributed()
-            .get_agas_client()
-            .get_num_localities_async();
+        return rt->get_num_localities(hpx::launch::sync, type, ec);
     }
 
     lcos::future<std::uint32_t> get_num_localities(
         components::component_type type)
     {
-        if (nullptr == hpx::get_runtime_distributed_ptr())
-            return lcos::make_ready_future<std::uint32_t>(0);
-
-        return get_runtime_distributed()
-            .get_agas_client()
-            .get_num_localities_async(type);
-    }
-
-    std::size_t get_num_worker_threads()
-    {
         runtime_distributed* rt = get_runtime_distributed_ptr();
         if (nullptr == rt)
         {
-            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_num_worker_threads",
+            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_num_localities",
                 "the runtime system has not been initialized yet");
-            return std::size_t(0);
+            return make_ready_future(std::uint32_t(0));
         }
 
-        error_code ec(lightweight);
-        return static_cast<std::size_t>(
-            rt->get_agas_client().get_num_overall_threads(ec));
-    }
-
-    std::uint32_t get_locality_id(error_code& ec)
-    {
-        return agas::get_locality_id(ec);
+        return rt->get_num_localities(type);
     }
 }    // namespace hpx
 

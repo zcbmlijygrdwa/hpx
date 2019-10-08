@@ -1650,4 +1650,71 @@ namespace hpx {
     {
         return get_runtime().get_notification_policy(prefix);
     }
+
+    std::uint32_t get_locality_id(error_code& ec)
+    {
+        runtime* rt = get_runtime_ptr();
+        if (nullptr == rt)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_locality_id",
+                "the runtime system has not been initialized yet");
+            return std::size_t(0);
+        }
+
+        return rt->get_locality_id(ec);
+    }
+
+    std::size_t get_num_worker_threads()
+    {
+        runtime* rt = get_runtime_ptr();
+        if (nullptr == rt)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_num_worker_threads",
+                "the runtime system has not been initialized yet");
+            return std::size_t(0);
+        }
+
+        return rt->get_num_worker_threads();
+    }
+
+    /// \brief Return the number of localities which are currently registered
+    ///        for the running application.
+    std::uint32_t get_num_localities(hpx::launch::sync_policy, error_code& ec)
+    {
+        runtime* rt = get_runtime_ptr();
+        if (nullptr == rt)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_num_localities",
+                "the runtime system has not been initialized yet");
+            return std::size_t(0);
+        }
+
+        return rt->get_num_localities(hpx::launch::sync, ec);
+    }
+
+    std::uint32_t get_initial_num_localities()
+    {
+        runtime* rt = get_runtime_ptr();
+        if (nullptr == rt)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_initial_num_localities",
+                "the runtime system has not been initialized yet");
+            return std::size_t(0);
+        }
+
+        return rt->get_initial_num_localities();
+    }
+
+    lcos::future<std::uint32_t> get_num_localities()
+    {
+        runtime* rt = get_runtime_ptr();
+        if (nullptr == rt)
+        {
+            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_num_localities",
+                "the runtime system has not been initialized yet");
+            return make_ready_future(std::uint32_t(0));
+        }
+
+        return rt->get_num_localities();
+    }
 }    // namespace hpx

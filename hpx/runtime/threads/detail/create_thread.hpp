@@ -63,8 +63,8 @@ namespace hpx { namespace threads { namespace detail
                 data.parent_phase = self->get_thread_phase();
             }
         }
-        // if (0 == data.parent_locality_id)
-        //     data.parent_locality_id = get_locality_id();
+        if (0 == data.parent_locality_id)
+            data.parent_locality_id = get_locality_id();
 #endif
 
         if (nullptr == data.scheduler_base)

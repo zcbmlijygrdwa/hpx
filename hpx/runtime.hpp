@@ -389,6 +389,32 @@ namespace hpx {
         notification_policy_type::on_error_type on_error_func(
             notification_policy_type::on_error_type&&);
 
+        virtual std::uint32_t get_locality_id(error_code& ec)
+        {
+            return 0;
+        }
+
+        virtual std::size_t get_num_worker_threads()
+        {
+            HPX_ASSERT(thread_manager_);
+            return thread_manager_->get_os_thread_count();
+        }
+
+        virtual std::uint32_t get_num_localities(hpx::launch::sync_policy, error_code& ec)
+        {
+            return 1;
+        }
+
+        virtual std::uint32_t get_initial_num_localities()
+        {
+            return 1;
+        }
+
+        virtual lcos::future<std::uint32_t> get_num_localities()
+        {
+            return make_ready_future(std::uint32_t(1));
+        }
+
     protected:
         void init_tss();
         void deinit_tss();
