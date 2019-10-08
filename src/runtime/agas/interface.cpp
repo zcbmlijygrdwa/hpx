@@ -408,7 +408,6 @@ naming::gid_type get_next_id(
   , error_code& ec
     )
 {
-    runtime* rt = get_runtime_ptr();
     runtime_distributed* rtd = get_runtime_distributed_ptr();
     if (rtd == nullptr)
     {
@@ -418,8 +417,7 @@ naming::gid_type get_next_id(
     }
 
     // during bootstrap we use the id pool
-    // TODO: Make runtime_distributed inherit runtime{_impl_local}?
-    if (rt->get_state() == state_invalid)
+    if (rtd->get_state() == state_invalid)
     {
         return rtd->get_id_pool().get_id(count);
     }
