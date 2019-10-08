@@ -6,8 +6,8 @@
 
 #include <hpx/config.hpp>
 #include <hpx/assertion.hpp>
-#include <hpx/custom_exception_info.hpp>
 #include <hpx/concurrency/thread_name.hpp>
+#include <hpx/custom_exception_info.hpp>
 #include <hpx/errors.hpp>
 #include <hpx/functional.hpp>
 #include <hpx/logging.hpp>
@@ -1459,9 +1459,9 @@ namespace hpx {
         return notifier;
     }
 
-    void runtime::init_tss_helper(char const* context, std::size_t local_thread_num,
-        std::size_t global_thread_num, char const* pool_name,
-        char const* postfix, bool service_thread)
+    void runtime::init_tss_helper(char const* context,
+        std::size_t local_thread_num, std::size_t global_thread_num,
+        char const* pool_name, char const* postfix, bool service_thread)
     {
         error_code ec(lightweight);
         return init_tss_ex(context, local_thread_num, global_thread_num,
@@ -1696,7 +1696,8 @@ namespace hpx {
         runtime* rt = get_runtime_ptr();
         if (nullptr == rt)
         {
-            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_initial_num_localities",
+            HPX_THROW_EXCEPTION(invalid_status,
+                "hpx::get_initial_num_localities",
                 "the runtime system has not been initialized yet");
             return std::size_t(0);
         }

@@ -8,6 +8,7 @@
 #define HPX_RUNTIME_RUNTIME_JUN_10_2008_1012AM
 
 #include <hpx/config.hpp>
+#include <hpx/assertion.hpp>
 #include <hpx/runtime.hpp>
 #include <hpx/runtime/runtime_mode.hpp>
 #include <hpx/runtime/shutdown_function.hpp>
@@ -28,6 +29,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -400,7 +402,8 @@ namespace hpx {
             return thread_manager_->get_os_thread_count();
         }
 
-        virtual std::uint32_t get_num_localities(hpx::launch::sync_policy, error_code& ec)
+        virtual std::uint32_t get_num_localities(
+            hpx::launch::sync_policy, error_code& ec)
         {
             return 1;
         }

@@ -407,7 +407,8 @@ namespace hpx {
                 agas_client_.get_num_overall_threads(ec));
         }
 
-        std::uint32_t get_num_localities(hpx::launch::sync_policy, error_code& ec) override
+        std::uint32_t get_num_localities(
+            hpx::launch::sync_policy, error_code& ec) override
         {
             return agas_client_.get_num_localities(ec);
         }
@@ -422,12 +423,14 @@ namespace hpx {
             return agas_client_.get_num_localities_async();
         }
 
-        std::uint32_t get_num_localities(hpx::launch::sync_policy, components::component_type type, error_code& ec)
+        std::uint32_t get_num_localities(hpx::launch::sync_policy,
+            components::component_type type, error_code& ec)
         {
             return agas_client_.get_num_localities(type, ec);
         }
 
-        lcos::future<std::uint32_t> get_num_localities(components::component_type type)
+        lcos::future<std::uint32_t> get_num_localities(
+            components::component_type type)
         {
             return agas_client_.get_num_localities_async(type);
         }
