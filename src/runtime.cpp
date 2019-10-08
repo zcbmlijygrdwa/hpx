@@ -1109,7 +1109,7 @@ namespace hpx {
 
         // Register this thread with the runtime system to allow calling certain
         // HPX functionality from the main thread.
-        init_tss_2("main-thread", 0, 0, "", "", false);
+        init_tss_helper("main-thread", 0, 0, "", "", false);
 
         return 0;    // return zero as we don't know the outcome of hpx_main yet
     }
@@ -1222,7 +1222,7 @@ namespace hpx {
             std::condition_variable cond;
             std::unique_lock<std::mutex> l(mtx);
 
-            std::thread t(util::bind(&runtime::stopped_2, this, blocking,
+            std::thread t(util::bind(&runtime::stop_helper, this, blocking,
                 std::ref(cond), std::ref(mtx)));
             cond.wait(l);
 
@@ -1233,7 +1233,7 @@ namespace hpx {
             thread_manager_->stop(blocking);    // wait for thread manager
 
             // this disables all logging from the main thread
-            deinit_tss_2("main-thread", 0);
+            deinit_tss_helper("main-thread", 0);
 
             LRT_(info) << "runtime_local: stopped all services";
         }
@@ -1256,14 +1256,14 @@ namespace hpx {
     // Second step in termination: shut down all services.
     // This gets executed as a task in the timer_pool io_service and not as
     // a HPX thread!
-    void runtime::stopped_2(
+    void runtime::stop_helper(
         bool blocking, std::condition_variable& cond, std::mutex& mtx)
     {
         // wait for thread manager to exit
         thread_manager_->stop(blocking);    // wait for thread manager
 
         // this disables all logging from the main thread
-        deinit_tss_2("main-thread", 0);
+        deinit_tss_helper("main-thread", 0);
 
         LRT_(info) << "runtime_local: stopped all services";
 
@@ -1450,9 +1450,9 @@ namespace hpx {
         notification_policy_type notifier;
 
         notifier.add_on_start_thread_callback(util::bind(
-            &runtime::init_tss_2, This(), prefix, _1, _2, _3, _4, false));
+            &runtime::init_tss_helper, This(), prefix, _1, _2, _3, _4, false));
         notifier.add_on_stop_thread_callback(
-            util::bind(&runtime::deinit_tss_2, This(), prefix, _1));
+            util::bind(&runtime::deinit_tss_helper, This(), prefix, _1));
         notifier.set_on_error_callback(
             util::bind(static_cast<report_error_t>(&runtime::report_error),
                 This(), _1, _2));
@@ -1460,7 +1460,7 @@ namespace hpx {
         return notifier;
     }
 
-    void runtime::init_tss_2(char const* context, std::size_t local_thread_num,
+    void runtime::init_tss_helper(char const* context, std::size_t local_thread_num,
         std::size_t global_thread_num, char const* pool_name,
         char const* postfix, bool service_thread)
     {
@@ -1543,7 +1543,7 @@ namespace hpx {
         }
     }
 
-    void runtime::deinit_tss_2(
+    void runtime::deinit_tss_helper(
         char const* context, std::size_t global_thread_num)
     {
         // call thread-specific user-supplied on_stop handler
@@ -1553,7 +1553,7 @@ namespace hpx {
         }
 
         // reset our TSS
-        this->runtime::deinit_tss();
+        deinit_tss();
 
         // reset PAPI support
         thread_support_->unregister_thread();
@@ -1639,7 +1639,7 @@ namespace hpx {
         if (nullptr != get_runtime_ptr())
             return false;    // never registered
 
-        deinit_tss_2(
+        deinit_tss_helper(
             detail::thread_name().c_str(), hpx::get_worker_thread_num());
         return true;
     }

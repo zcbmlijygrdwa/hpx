@@ -68,10 +68,6 @@ namespace hpx {
             std::uint32_t, std::string const&);
 
         /// Construct a new HPX runtime instance
-        ///
-        /// TODO: This is not correct...
-        ///  \param locality_mode  [in] This is the mode the given runtime
-        ///                       instance should be executed in.
         explicit runtime(util::runtime_configuration& rtcfg);
 
         /// \brief The destructor makes sure all HPX runtime services are
@@ -108,19 +104,6 @@ namespace hpx {
         {
             return state_.load() == state_stopped;
         }
-
-        ///  \brief Stop the runtime system, wait for termination
-        ///
-        /// \param blocking   [in] This allows to control whether this
-        ///                   call blocks until the runtime system has been
-        ///                   fully stopped. If this parameter is \a false then
-        ///                   this call will initiate the stop action but will
-        ///                   return immediately. Use a second call to stop
-        ///                   with this parameter set to \a true to wait for
-        ///                   all internal work to be completed.
-        // TODO: Rename
-        void stopped_2(
-            bool blocking, std::condition_variable& cond, std::mutex& mtx);
 
         /// \brief access configuration information
         util::runtime_configuration& get_config()
@@ -411,15 +394,25 @@ namespace hpx {
         void deinit_tss();
 
     private:
-        // TODO: Rename
-        void deinit_tss_2(char const* context, std::size_t num);
+        /// \brief Helper function to stop the runtime.
+        ///
+        /// \param blocking   [in] This allows to control whether this
+        ///                   call blocks until the runtime system has been
+        ///                   fully stopped. If this parameter is \a false then
+        ///                   this call will initiate the stop action but will
+        ///                   return immediately. Use a second call to stop
+        ///                   with this parameter set to \a true to wait for
+        ///                   all internal work to be completed.
+        void stop_helper(
+            bool blocking, std::condition_variable& cond, std::mutex& mtx);
+
+        void deinit_tss_helper(char const* context, std::size_t num);
 
         void init_tss_ex(char const* context, std::size_t local_thread_num,
             std::size_t global_thread_num, char const* pool_name,
             char const* postfix, bool service_thread, error_code& ec);
 
-        // TODO: Rename
-        void init_tss_2(char const* context, std::size_t local_thread_num,
+        void init_tss_helper(char const* context, std::size_t local_thread_num,
             std::size_t global_thread_num, char const* pool_name,
             char const* postfix, bool service_thread);
 
