@@ -6,9 +6,8 @@
 
 #include <hpx/config.hpp>
 #include <hpx/assertion.hpp>
+#include <hpx/custom_exception_info.hpp>
 #include <hpx/concurrency/thread_name.hpp>
-#include <hpx/custom_exception_info.hpp>    // TODO: Remove locality information
-                                            // for local runtime
 #include <hpx/errors.hpp>
 #include <hpx/functional.hpp>
 #include <hpx/logging.hpp>

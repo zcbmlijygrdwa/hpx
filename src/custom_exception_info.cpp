@@ -11,7 +11,6 @@
 #include <hpx/runtime/config_entry.hpp>
 #include <hpx/runtime/get_locality_id.hpp>
 #include <hpx/runtime/get_worker_thread_num.hpp>
-#include <hpx/runtime/naming/name.hpp>
 #include <hpx/runtime/threads/thread_helpers.hpp>
 #include <hpx/runtime/threads/threadmanager.hpp>
 #include <hpx/state.hpp>
@@ -505,7 +504,9 @@ namespace hpx
             xi.get<hpx::detail::throw_locality>();
         if (locality)
             return *locality;
-        return naming::invalid_locality_id;
+        // invalid_locality_id = ~0, but we want to avoid pulling in the naming
+        // headers so we use a literal here.
+        return ~0;
     }
 
     /// Return the (operating system) process id of the locality where the

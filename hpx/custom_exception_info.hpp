@@ -10,7 +10,6 @@
 #include <hpx/config.hpp>
 #include <hpx/assertion.hpp>
 #include <hpx/errors.hpp>
-#include <hpx/runtime/naming_fwd.hpp>
 
 #include <boost/system/error_code.hpp>
 #include <boost/system/system_error.hpp>
@@ -204,9 +203,10 @@ namespace hpx {
     template <typename E>
     std::uint32_t get_error_locality_id(E const& e)
     {
+	// We use the literal ~0 here instead of invalid_locality_id to avoid a
+	// dependency on naming.
         return invoke_with_exception_info(e, [](exception_info const* xi) {
-            return xi ? get_error_locality_id(*xi) :
-                        naming::invalid_locality_id;
+            return xi ? get_error_locality_id(*xi) : ~0;
         });
     }
     /// \endcond
