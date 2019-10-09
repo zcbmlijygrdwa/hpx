@@ -450,18 +450,6 @@ namespace hpx {
     private:
         runtime_mode mode_;
         util::unique_id_ranges id_pool_;
-        notification_policy_type main_pool_notifier_;
-        util::io_service_pool main_pool_;
-#ifdef HPX_HAVE_IO_POOL
-        notification_policy_type io_pool_notifier_;
-        util::io_service_pool io_pool_;
-#endif
-#ifdef HPX_HAVE_TIMER_POOL
-        notification_policy_type timer_pool_notifier_;
-        util::io_service_pool timer_pool_;
-#endif
-        notification_policy_type notifier_;
-        std::unique_ptr<hpx::threads::threadmanager> thread_manager_;
         notification_policy_type parcel_handler_notifier_;
         parcelset::parcelhandler parcel_handler_;
         naming::resolver_client agas_client_;

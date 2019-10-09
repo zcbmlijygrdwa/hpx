@@ -260,6 +260,59 @@ namespace hpx {
 #endif
             notifier_))
     {
+        init();
+    }
+
+    runtime::runtime(util::runtime_configuration& rtcfg,
+         notification_policy_type&& notifier,
+         notification_policy_type&& main_pool_notifier,
+#ifdef HPX_HAVE_IO_POOL
+         notification_policy_type&& io_pool_notifier,
+#endif
+#ifdef HPX_HAVE_IO_POOL
+         notification_policy_type&& timer_pool_notifier,
+#endif
+#ifdef HPX_HAVE_NETWORKING
+         threads::detail::network_background_callback_type network_background_callback
+#endif
+          )
+      : ini_(rtcfg)
+      , instance_number_(++instance_number_counter_)
+      , thread_support_(new util::thread_mapper)
+      , topology_(resource::get_partitioner().get_topology())
+      , state_(state_invalid)
+      , on_start_func_(global_on_start_func)
+      , on_stop_func_(global_on_stop_func)
+      , on_error_func_(global_on_error_func)
+      , result_(0)
+      , main_pool_notifier_()
+      , main_pool_(1, main_pool_notifier_, "main_pool")
+#ifdef HPX_HAVE_IO_POOL
+      , io_pool_notifier_(io_pool_notifier)
+      , io_pool_(
+            rtcfg.get_thread_pool_size("io_pool"), io_pool_notifier_, "io_pool")
+#endif
+#ifdef HPX_HAVE_TIMER_POOL
+      , timer_pool_notifier_(timer_pool_notifier)
+      , timer_pool_(rtcfg.get_thread_pool_size("timer_pool"),
+            timer_pool_notifier_, "timer_pool")
+#endif
+      , notifier_(notifier)
+      , thread_manager_(new hpx::threads::threadmanager(
+#ifdef HPX_HAVE_TIMER_POOL
+            timer_pool_,
+#endif
+            notifier_,
+#ifdef HPX_HAVE_NETWORKING
+            network_background_callback
+#endif
+))
+    {
+        init();
+    }
+
+    void runtime::init()
+    {
         LPROGRESS_;
 
         // initialize our TSS

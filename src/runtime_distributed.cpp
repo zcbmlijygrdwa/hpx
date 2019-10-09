@@ -349,33 +349,20 @@ namespace hpx {
 
     ///////////////////////////////////////////////////////////////////////////
     runtime_distributed::runtime_distributed(util::runtime_configuration& rtcfg)
-      : runtime(rtcfg)
-      , mode_(rtcfg.mode_)
-      , main_pool_notifier_()
-      , main_pool_(1, main_pool_notifier_, "main_pool")
+      : runtime(rtcfg,
+            runtime_distributed::get_notification_policy("worker-thread"),
+            notification_policy_type{},
 #ifdef HPX_HAVE_IO_POOL
-      , io_pool_notifier_(
-            runtime_distributed::get_notification_policy("io-thread"))
-      , io_pool_(
-            rtcfg.get_thread_pool_size("io_pool"), io_pool_notifier_, "io_pool")
+            runtime_distributed::get_notification_policy("io-thread"),
 #endif
 #ifdef HPX_HAVE_TIMER_POOL
-      , timer_pool_notifier_(
-            runtime_distributed::get_notification_policy("timer-thread"))
-      , timer_pool_(rtcfg.get_thread_pool_size("timer_pool"),
-            timer_pool_notifier_, "timer_pool")
+            runtime_distributed::get_notification_policy("timer-thread"),
 #endif
-      , notifier_(runtime_distributed::get_notification_policy("worker-thread"))
-      , thread_manager_(new hpx::threads::threadmanager(
-#ifdef HPX_HAVE_TIMER_POOL
-            timer_pool_,
-#endif
-            notifier_
 #ifdef HPX_HAVE_NETWORKING
-            ,
             &detail::network_background_callback
 #endif
-            ))
+            )
+      , mode_(rtcfg.mode_)
       , parcel_handler_notifier_(
             runtime_distributed::get_notification_policy("parcel-thread"))
       , parcel_handler_(rtcfg, thread_manager_.get(), parcel_handler_notifier_)
@@ -402,12 +389,6 @@ namespace hpx {
         components::server::get_error_dispatcher().set_error_sink(
             &runtime_distributed::default_errorsink);
 
-        // now create all threadmanager pools
-        thread_manager_->create_pools();
-
-        // this initializes the used_processing_units_ mask
-        thread_manager_->init();
-
         // now, launch AGAS and register all nodes, launch all other components
         agas_client_.initialize(parcel_handler_,
             std::uint64_t(runtime_support_.get()),
@@ -417,31 +398,6 @@ namespace hpx {
 
         applier_.initialize(std::uint64_t(runtime_support_.get()),
             std::uint64_t(memory_.get()));
-
-        // copy over all startup functions registered so far
-        for (startup_function_type& f : detail::global_pre_startup_functions)
-        {
-            add_pre_startup_function(std::move(f));
-        }
-        detail::global_pre_startup_functions.clear();
-
-        for (startup_function_type& f : detail::global_startup_functions)
-        {
-            add_startup_function(std::move(f));
-        }
-        detail::global_startup_functions.clear();
-
-        for (shutdown_function_type& f : detail::global_pre_shutdown_functions)
-        {
-            add_pre_shutdown_function(std::move(f));
-        }
-        detail::global_pre_shutdown_functions.clear();
-
-        for (shutdown_function_type& f : detail::global_shutdown_functions)
-        {
-            add_shutdown_function(std::move(f));
-        }
-        detail::global_shutdown_functions.clear();
 
         // set state to initialized
         set_state(state_initialized);

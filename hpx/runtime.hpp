@@ -56,6 +56,12 @@ namespace hpx {
     class HPX_EXPORT runtime
     {
     public:
+        /// Generate a new notification policy instance for the given thread
+        /// name prefix
+        using notification_policy_type = threads::policies::callback_notifier;
+        virtual notification_policy_type get_notification_policy(
+            char const* prefix);
+
         state get_state() const
         {
             return state_.load();
@@ -63,14 +69,32 @@ namespace hpx {
 
         /// The \a hpx_main_function_type is the default function type usable
         /// as the main HPX thread function.
-        typedef int hpx_main_function_type();
+        using hpx_main_function_type = int();
 
-        ///
-        typedef void hpx_errorsink_function_type(
-            std::uint32_t, std::string const&);
+        using hpx_errorsink_function_type = void(std::uint32_t, std::string const&);
 
         /// Construct a new HPX runtime instance
         explicit runtime(util::runtime_configuration& rtcfg);
+
+    protected:
+        runtime(util::runtime_configuration& rtcfg,
+             notification_policy_type&& notifier,
+             notification_policy_type&& main_pool_notifier,
+#ifdef HPX_HAVE_IO_POOL
+             notification_policy_type&& io_pool_notifier,
+#endif
+#ifdef HPX_HAVE_IO_POOL
+             notification_policy_type&& timer_pool_notifier,
+#endif
+#ifdef HPX_HAVE_NETWORKING
+             threads::detail::network_background_callback_type network_background_callback
+#endif
+              );
+
+        /// Common initialization for different constructors
+        void init();
+
+    public:
 
         /// \brief The destructor makes sure all HPX runtime services are
         ///        properly shut down before exiting.
@@ -94,7 +118,7 @@ namespace hpx {
         {
             state_.store(state_stopped);
 
-            typedef util::function_nonser<void()> value_type;
+            using value_type = util::function_nonser<void()>;
 
             std::lock_guard<std::mutex> l(mtx_);
             for (value_type const& f : on_exit_functions_)
@@ -374,12 +398,6 @@ namespace hpx {
         ///
         virtual bool unregister_thread();
 
-        /// Generate a new notification policy instance for the given thread
-        /// name prefix
-        typedef threads::policies::callback_notifier notification_policy_type;
-        virtual notification_policy_type get_notification_policy(
-            char const* prefix);
-
         notification_policy_type::on_startstop_type on_start_func() const;
         notification_policy_type::on_startstop_type on_stop_func() const;
         notification_policy_type::on_error_type on_error_func() const;
@@ -470,7 +488,7 @@ namespace hpx {
 
     protected:
         // list of functions to call on exit
-        typedef std::vector<util::function_nonser<void()>> on_exit_type;
+        using on_exit_type = std::vector<util::function_nonser<void()>>;
         on_exit_type on_exit_functions_;
         mutable std::mutex mtx_;
 
@@ -487,7 +505,7 @@ namespace hpx {
         threads::topology& topology_;
 
         // locality basename -> used cores
-        typedef std::map<std::string, std::uint32_t> used_cores_map_type;
+        using used_cores_map_type = std::map<std::string, std::uint32_t>;
         used_cores_map_type used_cores_map_;
 
         std::atomic<state> state_;
@@ -501,7 +519,6 @@ namespace hpx {
 
         std::exception_ptr exception_;
 
-    private:
         notification_policy_type main_pool_notifier_;
         util::io_service_pool main_pool_;
 #ifdef HPX_HAVE_IO_POOL
@@ -515,6 +532,7 @@ namespace hpx {
         notification_policy_type notifier_;
         std::unique_ptr<hpx::threads::threadmanager> thread_manager_;
 
+    private:
         std::list<startup_function_type> pre_startup_functions_;
         std::list<startup_function_type> startup_functions_;
         std::list<shutdown_function_type> pre_shutdown_functions_;
