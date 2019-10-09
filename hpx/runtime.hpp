@@ -157,11 +157,6 @@ namespace hpx {
             return topology_;
         }
 
-        std::uint32_t assign_cores(
-            std::string const& locality_basename, std::uint32_t num_threads);
-
-        std::uint32_t assign_cores();
-
         /// \brief Run the HPX runtime system, use the given function for the
         ///        main \a thread and block waiting for all threads to
         ///        finish
@@ -503,10 +498,6 @@ namespace hpx {
 
         // topology and affinity data
         threads::topology& topology_;
-
-        // locality basename -> used cores
-        using used_cores_map_type = std::map<std::string, std::uint32_t>;
-        used_cores_map_type used_cores_map_;
 
         std::atomic<state> state_;
 

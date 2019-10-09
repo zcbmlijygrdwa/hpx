@@ -221,7 +221,6 @@ void addressing_service::launch_bootstrap(
     locality_ns_.reset(new detail::bootstrap_locality_namespace(
         reinterpret_cast<server::primary_namespace *>(primary_ns_.ptr())));
 
-    runtime& rt = get_runtime();
     runtime_distributed& rtd = get_runtime_distributed();
 
     naming::gid_type const here =
@@ -229,11 +228,11 @@ void addressing_service::launch_bootstrap(
     set_local_locality(here);
 
     // store number of cores used by other processes
-    std::uint32_t cores_needed = rt.assign_cores();
-    std::uint32_t first_used_core = rt.assign_cores(
+    std::uint32_t cores_needed = rtd.assign_cores();
+    std::uint32_t first_used_core = rtd.assign_cores(
         pp ? pp->get_locality_name() : "<console>", cores_needed);
 
-    util::runtime_configuration& cfg = rt.get_config();
+    util::runtime_configuration& cfg = rtd.get_config();
     cfg.set_first_used_core(first_used_core);
     HPX_ASSERT(pp ? pp->here() == pp->agas_locality(cfg) : true);
 
@@ -257,7 +256,7 @@ void addressing_service::launch_bootstrap(
         hpx::components::component_agas_symbol_namespace, 1U,
             symbol_ns_.ptr());
 
-    rt.get_config().parse("assigned locality",
+    rtd.get_config().parse("assigned locality",
         hpx::util::format("hpx.locality!={1}",
             naming::get_locality_id_from_gid(here)));
 

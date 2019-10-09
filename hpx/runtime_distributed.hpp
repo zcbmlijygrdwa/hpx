@@ -435,6 +435,11 @@ namespace hpx {
             return agas_client_.get_num_localities_async(type);
         }
 
+        std::uint32_t assign_cores(
+            std::string const& locality_basename, std::uint32_t num_threads);
+
+        std::uint32_t assign_cores();
+
     private:
         void deinit_tss(char const* context, std::size_t num);
 
@@ -454,6 +459,10 @@ namespace hpx {
         parcelset::parcelhandler parcel_handler_;
         naming::resolver_client agas_client_;
         applier::applier applier_;
+
+        // locality basename -> used cores
+        using used_cores_map_type = std::map<std::string, std::uint32_t>;
+        used_cores_map_type used_cores_map_;
 
         std::unique_ptr<components::server::memory> memory_;
         std::unique_ptr<components::server::runtime_support> runtime_support_;

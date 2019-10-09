@@ -423,36 +423,6 @@ namespace hpx {
         return diff < 0LL ? 0ULL : static_cast<std::uint64_t>(diff);
     }
 
-    std::uint32_t runtime::assign_cores(
-        std::string const& locality_basename, std::uint32_t cores_needed)
-    {
-        std::lock_guard<std::mutex> l(mtx_);
-
-        used_cores_map_type::iterator it =
-            used_cores_map_.find(locality_basename);
-        if (it == used_cores_map_.end())
-        {
-            used_cores_map_.insert(used_cores_map_type::value_type(
-                locality_basename, cores_needed));
-            return 0;
-        }
-
-        std::uint32_t current = (*it).second;
-        (*it).second += cores_needed;
-        return current;
-    }
-
-    std::uint32_t runtime::assign_cores()
-    {
-        // adjust thread assignments to allow for more than one locality per
-        // node
-        std::size_t first_core = this->get_config().get_first_used_core();
-        std::size_t cores_needed =
-            hpx::resource::get_partitioner().assign_cores(first_core);
-
-        return static_cast<std::uint32_t>(cores_needed);
-    }
-
     ///////////////////////////////////////////////////////////////////////////
     threads::policies::callback_notifier::on_startstop_type
     runtime::on_start_func() const
