@@ -497,8 +497,11 @@ namespace hpx {
         notification_policy_type::on_startstop_type on_stop_func_;
         notification_policy_type::on_error_type on_error_func_;
 
-    private:
         int result_;
+
+        std::exception_ptr exception_;
+
+    private:
         notification_policy_type main_pool_notifier_;
         util::io_service_pool main_pool_;
 #ifdef HPX_HAVE_IO_POOL
@@ -511,8 +514,6 @@ namespace hpx {
 #endif
         notification_policy_type notifier_;
         std::unique_ptr<hpx::threads::threadmanager> thread_manager_;
-
-        std::exception_ptr exception_;
 
         std::list<startup_function_type> pre_startup_functions_;
         std::list<startup_function_type> startup_functions_;

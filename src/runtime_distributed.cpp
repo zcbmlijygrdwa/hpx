@@ -351,7 +351,6 @@ namespace hpx {
     runtime_distributed::runtime_distributed(util::runtime_configuration& rtcfg)
       : runtime(rtcfg)
       , mode_(rtcfg.mode_)
-      , result_(0)
       , main_pool_notifier_()
       , main_pool_(1, main_pool_notifier_, "main_pool")
 #ifdef HPX_HAVE_IO_POOL

@@ -448,9 +448,8 @@ namespace hpx {
             char const* postfix, bool service_thread);
 
     private:
-        util::unique_id_ranges id_pool_;
         runtime_mode mode_;
-        int result_;
+        util::unique_id_ranges id_pool_;
         notification_policy_type main_pool_notifier_;
         util::io_service_pool main_pool_;
 #ifdef HPX_HAVE_IO_POOL
@@ -467,9 +466,6 @@ namespace hpx {
         parcelset::parcelhandler parcel_handler_;
         naming::resolver_client agas_client_;
         applier::applier applier_;
-
-        std::mutex mtx_;
-        std::exception_ptr exception_;
 
         std::unique_ptr<components::server::memory> memory_;
         std::unique_ptr<components::server::runtime_support> runtime_support_;
