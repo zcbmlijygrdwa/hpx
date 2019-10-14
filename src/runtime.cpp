@@ -1676,11 +1676,9 @@ namespace hpx {
     std::uint32_t get_locality_id(error_code& ec)
     {
         runtime* rt = get_runtime_ptr();
-        if (nullptr == rt)
+        if (nullptr == rt || rt->get_state() == state_invalid)
         {
-            HPX_THROW_EXCEPTION(invalid_status, "hpx::get_locality_id",
-                "the runtime system has not been initialized yet");
-            return std::size_t(0);
+            return naming::invalid_locality_id;
         }
 
         return rt->get_locality_id(ec);

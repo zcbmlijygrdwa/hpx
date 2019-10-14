@@ -693,8 +693,6 @@ namespace hpx
 
             hpx::assertion::set_assertion_handler(&detail::assertion_handler);
             hpx::util::set_test_failure_handler(&detail::test_failure_handler);
-	    // TODO: This one tries to access locality information. Only enable
-	    // with distributed runtime.
             hpx::set_custom_exception_info_handler(&detail::custom_exception_info);
             hpx::set_pre_exception_handler(&detail::pre_exception_handler);
 #if defined(HPX_HAVE_VERIFY_LOCKS)
