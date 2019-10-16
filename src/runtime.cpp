@@ -260,7 +260,7 @@ namespace hpx {
 #endif
             notifier_))
     {
-        init();
+        init(true);
     }
 
     runtime::runtime(util::runtime_configuration& rtcfg,
@@ -308,10 +308,10 @@ namespace hpx {
 #endif
 ))
     {
-        init();
+        init(false);
     }
 
-    void runtime::init()
+    void runtime::init(bool init_threadmanager)
     {
         LPROGRESS_;
 
@@ -321,11 +321,15 @@ namespace hpx {
 
         LPROGRESS_;
 
-        // now create all threadmanager pools
-        thread_manager_->create_pools();
+        // TODO: Better way to handle delaying this?
+        if (init_threadmanager)
+        {
+            // now create all threadmanager pools
+            thread_manager_->create_pools();
 
-        // this initializes the used_processing_units_ mask
-        thread_manager_->init();
+            // this initializes the used_processing_units_ mask
+            thread_manager_->init();
+        }
 
         // copy over all startup functions registered so far
         for (startup_function_type& f : detail::global_pre_startup_functions)

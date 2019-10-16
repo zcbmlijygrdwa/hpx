@@ -384,6 +384,11 @@ namespace hpx {
             runtime_distributed_ = this;
         }
 
+        //  now create all threadmanager pools
+        thread_manager_->create_pools();
+
+        // this initializes the used_processing_units_ mask
+        thread_manager_->init();
         agas_client_.bootstrap(parcel_handler_, ini_);
 
         components::server::get_error_dispatcher().set_error_sink(
@@ -412,10 +417,6 @@ namespace hpx {
 
         // stop all services
         parcel_handler_.stop();     // stops parcel pools as well
-        thread_manager_->stop();    // stops timer_pool_ as well
-#ifdef HPX_HAVE_IO_POOL
-        io_pool_.stop();
-#endif
         // unload libraries
         runtime_support_->tidy();
 
