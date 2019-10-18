@@ -653,7 +653,8 @@ namespace hpx { namespace performance_counters
         naming::gid_type create_counter(counter_info const& info, error_code& ec)
         {
             naming::gid_type gid;
-            get_runtime_distributed().get_counter_registry().create_counter(info, gid, ec);
+            get_runtime_distributed().get_counter_registry().
+                create_counter(info, gid, ec);
             return gid;
         }
 
@@ -701,7 +702,8 @@ namespace hpx { namespace performance_counters
         counter_status add_counter(naming::id_type const& id,
             counter_info const& info, error_code& ec)
         {
-            return get_runtime_distributed().get_counter_registry().add_counter(id, info, ec);
+            return get_runtime_distributed().get_counter_registry().
+                add_counter(id, info, ec);
         }
 
         counter_status remove_counter(counter_info const& info,

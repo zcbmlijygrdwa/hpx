@@ -203,8 +203,8 @@ namespace hpx {
     template <typename E>
     std::uint32_t get_error_locality_id(E const& e)
     {
-	// We use the literal ~0 here instead of invalid_locality_id to avoid a
-	// dependency on naming.
+        // We use the literal ~0 here instead of invalid_locality_id to avoid a
+        // dependency on naming.
         return invoke_with_exception_info(e, [](exception_info const* xi) {
             return xi ? get_error_locality_id(*xi) : ~0;
         });

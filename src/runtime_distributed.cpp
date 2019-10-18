@@ -1394,15 +1394,15 @@ namespace hpx {
                     ec);
 
                 // comment this out for now as on CIrcleCI this is causing unending grief
-                //                 if (ec)
-                //                 {
-                //                     HPX_THROW_EXCEPTION(kernel_error
-                //                         , "runtime_distributed::init_tss_ex"
-                //                         , hpx::util::format(
-                //                             "failed to set thread affinity mask ("
-                //                             HPX_CPU_MASK_PREFIX "{:x}) for service thread: {}",
-                //                             used_processing_units, detail::thread_name()));
-                //                 }
+                //if (ec)
+                //{
+                //    HPX_THROW_EXCEPTION(kernel_error
+                //        , "runtime_distributed::init_tss_ex"
+                //        , hpx::util::format(
+                //            "failed to set thread affinity mask ("
+                //            HPX_CPU_MASK_PREFIX "{:x}) for service thread: {}",
+                //            used_processing_units, detail::thread_name()));
+                //}
             }
 #endif
         }
