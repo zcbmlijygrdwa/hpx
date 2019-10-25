@@ -17,6 +17,9 @@ function(add_hpx_module name)
   cmake_parse_arguments(${name} "${options}" "${one_value_args}" "${multi_value_args}" ${ARGN})
 
   project(HPX.${name} CXX)
+  if (${name}_CUDA)
+    enable_language(CUDA)
+  endif()
 
   include(HPX_Message)
   include(HPX_Option)

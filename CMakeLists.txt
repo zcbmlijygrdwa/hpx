@@ -364,7 +364,11 @@ hpx_option(HPX_WITH_CUDA BOOL
 hpx_option(HPX_WITH_CUDA_CLANG BOOL
   "Use clang to compile CUDA code (default: OFF)" OFF ADVANCED)
 if(HPX_WITH_CUDA)
+  # find_package still required to link to non .cu files and for architecture
+  # detection (is solved in recent CMake versions)
   find_package(CUDA REQUIRED)
+  set(CMAKE_CUDA_COMPILER ${CUDA_TOOLKIT_ROOT_DIR}/bin/nvcc)
+  enable_language(CUDA)
   set(HPX_WITH_COMPUTE On)
   hpx_add_config_define(HPX_HAVE_CUDA)
   hpx_add_config_define(HPX_HAVE_COMPUTE)
