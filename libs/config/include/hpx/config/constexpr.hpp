@@ -21,6 +21,9 @@
 #define HPX_CXX14_CONSTEXPR
 /// This macro evaluates to ``static :c:macro:HPX_CONSTEXPR_OR_CONST``.
 #define HPX_STATIC_CONSTEXPR
+/// This macro evaluates to ``inline constexpr`` if the compiler supports C++17 inline
+/// constexpr variables. Otherwise evaluates to ``constexpr``
+#define HPX_INLINE_CONSTEXPR
 #else
 
 // clang-format off
@@ -37,6 +40,12 @@
 #   define HPX_CXX14_CONSTEXPR constexpr
 #else
 #   define HPX_CXX14_CONSTEXPR
+#endif
+
+#ifdef HPX_HAVE_CXX17_INLINE_CONSTEXPR_VARIABLE
+#define HPX_INLINE_CONSTEXPR_VARIABLE inline constexpr
+#else
+#define HPX_INLINE_CONSTEXPR_VARIABLE constexpr
 #endif
 // clang-format on
 

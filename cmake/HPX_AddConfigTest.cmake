@@ -759,6 +759,12 @@ function(hpx_check_for_cxx17_if_constexpr)
     FILE ${ARGN})
 endfunction()
 
+function(hpx_check_for_cxx17_inline_constexpr_variable)
+  add_hpx_config_test(HPX_WITH_CXX17_INLINE_CONSTEXPR_VALUE
+    SOURCE cmake/tests/cxx17_inline_constexpr_variable.cpp
+    FILE ${ARGN})
+endfunction()
+
 ###############################################################################
 function(hpx_check_for_cxx17_noexcept_functions_as_nontype_template_arguments)
   add_hpx_config_test(
