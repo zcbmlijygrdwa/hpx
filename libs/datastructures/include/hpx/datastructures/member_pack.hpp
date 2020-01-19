@@ -11,13 +11,19 @@
 #include <hpx/type_support/pack.hpp>
 
 #include <cstddef>    // for size_t
+#include <type_traits>
 #include <utility>
 
 namespace hpx { namespace util {
 
     namespace detail {
 
-        template <std::size_t I, typename T>
+        template <std::size_t I, typename T,
+            bool Empty = std::is_empty<T>::value
+#if defined(HPX_HAVE_CXX14_STD_IS_FINAL)
+                && !std::is_final<T>::value
+#endif
+            >
         struct member_leaf
         {
             T member;
@@ -33,29 +39,54 @@ namespace hpx { namespace util {
         };
 
         template <std::size_t I, typename T>
+        struct member_leaf<I, T, /*Empty*/ true> : T
+        {
+            member_leaf() = default;
+
+            template <typename U>
+            explicit HPX_CONSTEXPR member_leaf(
+                std::piecewise_construct_t, U&& v)
+              : T(std::forward<U>(v))
+            {
+            }
+        };
+
+        template <std::size_t I, typename T>
         T member_type(member_leaf<I, T>& /*leaf*/) noexcept;
 
         template <std::size_t I, typename T>
         static HPX_CXX14_CONSTEXPR T& member_get(
-            member_leaf<I, T>& leaf) noexcept
+            member_leaf<I, T, false>& leaf) noexcept
+        {
+            return leaf.member;
+        }
+        template <std::size_t I, typename T>
+        static HPX_CXX14_CONSTEXPR T& member_get(
+            member_leaf<I, T, true>& leaf) noexcept
+        {
+            return leaf;
+        }
+        template <std::size_t I, typename T>
+        static HPX_CONSTEXPR T const& member_get(
+            member_leaf<I, T, false> const& leaf) noexcept
         {
             return leaf.member;
         }
         template <std::size_t I, typename T>
         static HPX_CONSTEXPR T const& member_get(
-            member_leaf<I, T> const& leaf) noexcept
+            member_leaf<I, T, true> const& leaf) noexcept
         {
-            return leaf.member;
+            return leaf;
         }
 
     }    // namespace detail
 
     ///////////////////////////////////////////////////////////////////////
     template <typename Is, typename... Ts>
-    struct member_pack;
+    struct HPX_EMPTY_BASES member_pack;
 
     template <std::size_t... Is, typename... Ts>
-    struct member_pack<util::index_pack<Is...>, Ts...>
+    struct HPX_EMPTY_BASES member_pack<util::index_pack<Is...>, Ts...>
       : detail::member_leaf<Is, Ts>...
     {
         member_pack() = default;
