@@ -236,6 +236,11 @@ function(hpx_perform_cxx_feature_tests)
   hpx_check_for_cxx17_noexcept_functions_as_nontype_template_arguments(
     DEFINITIONS HPX_HAVE_CXX17_NOEXCEPT_FUNCTIONS_AS_NONTYPE_TEMPLATE_ARGUMENTS)
 
+  # we deliberately check for this functionality even for non-C++20
+  # configurations as some compilers support it even in C++11/14/17 mode
+  hpx_check_for_cxx20_no_unique_address_attribute(
+    DEFINITIONS HPX_HAVE_CXX20_NO_UNIQUE_ADDRESS_ATTRIBUTE)
+
   # Check the availability of certain C++ builtins
   hpx_check_for_builtin_integer_pack(
     DEFINITIONS HPX_HAVE_BUILTIN_INTEGER_PACK)

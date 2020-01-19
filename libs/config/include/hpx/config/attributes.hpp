@@ -90,6 +90,14 @@
 #endif
 
 ///////////////////////////////////////////////////////////////////////////////
+// handle [[no_unique_address]]
+#if defined(HPX_HAVE_CXX20_NO_UNIQUE_ADDRESS_ATTRIBUTE)
+#   define HPX_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#else
+#   define HPX_NO_UNIQUE_ADDRESS
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
 // handle empty_bases
 #if defined(_MSC_VER)
 #  define HPX_EMPTY_BASES __declspec(empty_bases)

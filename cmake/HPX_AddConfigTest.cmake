@@ -768,6 +768,14 @@ function(hpx_check_for_cxx17_noexcept_functions_as_nontype_template_arguments)
 endfunction()
 
 ###############################################################################
+function(hpx_check_for_cxx20_no_unique_address_attribute)
+  add_hpx_config_test(
+    HPX_WITH_CXX20_NO_UNIQUE_ADDRESS_ATTRIBUTE
+    SOURCE cmake/tests/cxx20_no_unique_address_attribute.cpp
+    FILE ${ARGN})
+endfunction()
+
+###############################################################################
 function(hpx_check_for_builtin_integer_pack)
   add_hpx_config_test(HPX_WITH_BUILTIN_INTEGER_PACK
     SOURCE cmake/tests/builtin_integer_pack.cpp
