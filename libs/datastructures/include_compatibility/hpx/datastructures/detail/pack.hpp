@@ -20,7 +20,6 @@
 #endif
 
 namespace hpx { namespace util { namespace detail {
-    using hpx::util::empty;
     using hpx::util::pack;
     using hpx::util::pack_c;
 
