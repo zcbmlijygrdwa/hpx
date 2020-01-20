@@ -6,6 +6,7 @@
 
 set(tests
     apex_action_count
+    annotation_check
    )
 
 
