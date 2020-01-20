@@ -42,12 +42,9 @@ namespace hpx { namespace detail
     HPX_UTIL_REGISTER_UNIQUE_FUNCTION_DECLARATION(                            \
         void (hpx::naming::id_type, hpx::naming::id_type)                     \
       , (hpx::util::functional::detail::apply_continuation_impl<              \
-            hpx::util::detail::bound_action<                                  \
-                Action                                                        \
-              , hpx::detail::apply_colocated_bound_tuple<                     \
-                    Action ::arguments_type                                   \
-                >::type                                                       \
-            >                                                                 \
+            typename hpx::detail::async_colocated_bound_action<               \
+                Action, Action::arguments_type                                \
+            >::type                                                           \
         >)                                                                    \
       , Name                                                                  \
     );                                                                        \
@@ -60,12 +57,9 @@ namespace hpx { namespace detail
     HPX_UTIL_REGISTER_UNIQUE_FUNCTION(                                        \
         void (hpx::naming::id_type, hpx::naming::id_type)                     \
       , (hpx::util::functional::detail::apply_continuation_impl<              \
-            hpx::util::detail::bound_action<                                  \
-                action                                                        \
-              , hpx::detail::apply_colocated_bound_tuple<                     \
-                    action::arguments_type                                    \
-                >::type                                                       \
-            >                                                                 \
+            typename hpx::detail::async_colocated_bound_action<               \
+                Action, Action::arguments_type                                \
+            >::type                                                           \
         >)                                                                    \
       , name                                                                  \
     );                                                                        \
