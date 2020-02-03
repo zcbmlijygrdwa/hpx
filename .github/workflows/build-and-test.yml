@@ -1,0 +1,31 @@
+name: C/C++ CI
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    container: stellargroup/build_env:ubuntu
+    
+    steps:
+    - uses: actions/checkout@v2
+    - name: configure
+      run: mkdir build && cd build && \
+        cmake .. -GNinja \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DHPX_WITH_MALLOC=system \
+        -HPX_WITH_TOOLS=ON \
+        -DCMAKE_CXX_FLAGS="-fcolor-diagnostics" \
+        -DHPX_WITH_TESTS_HEADERS=ON \
+        -DHPX_WITH_COMPILER_WARNINGS=ON \
+        -DHPX_WITH_COMPILER_WARNINGS_AS_ERRORS=ON \
+        -DHPX_WITH_DEPRECATION_WARNINGS=ON \
+        -DCMAKE_CXX_CLANG_TIDY=clang-tidy \
+        -DHPX_WITH_SPINLOCK_DEADLOCK_DETECTION=ON
+    - name: build
+      run: cd build && ninja -j4 core tests examples tools
+    - name: inspect
+      run: cd build && ./bin/inspect --all
+    - name: test
+      run: cd build && ctest --output-on-failure
