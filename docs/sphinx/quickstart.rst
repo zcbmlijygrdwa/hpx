@@ -231,7 +231,7 @@ program now, you should see the familiar ``Hello World!``:
    When including ``hpx_main.hpp`` the user-defined ``main`` gets renamed and
    the real ``main`` function is defined by |hpx|. This means that the
    user-defined ``main`` must include a return statement, unlike the real
-   ``main``. If you do not include the return statement you may end up with
+   ``main``. If you do not include the return statement, you may end up with
    confusing compile time errors mentioning ``user_main`` or even runtime
    errors.
 
@@ -255,7 +255,7 @@ programs:
 
 * lightweight thread: Essential for good performance with task-based programs.
   Lightweight refers to smaller stacks and faster context switching compared to
-  OS-threads. Smaller overheads allow the program to be broken up into smaller
+  OS threads. Smaller overheads allow the program to be broken up into smaller
   tasks, which in turns helps the runtime fully utilize all processing units.
 
 * ``async``: The most basic way of launching tasks asynchronously. Returns a
@@ -290,7 +290,7 @@ tricky to get right (the continuation needs to take the future as an argument).
 .. note::
 
    |hpx| programs accept command line arguments. The most important one is
-   :option:`--hpx:threads`\ ``=N`` to set the number of OS-threads used by
+   :option:`--hpx:threads`\ ``=N`` to set the number of OS threads used by
    |hpx|. |hpx| uses one thread per core by default. Play around with the
    example above and see what difference the number of threads makes on the
    ``sort`` function. See :ref:`launching_and_configuring` for more details on
@@ -305,7 +305,7 @@ tricky to get right (the continuation needs to take the future as an argument).
 
 .. tip::
 
-   If possible, prefer to use the provided parallel algorithms instead of
+   If possible, try to use the provided parallel algorithms instead of
    writing your own implementation. This can save you time and the resulting
    program is often faster.
 
