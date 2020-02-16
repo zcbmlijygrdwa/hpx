@@ -36,5 +36,5 @@ for effective application of the serialization process without obstructing the
 algorithms that need special code for packing and unpacking. It also allows for
 optimizations in the implementation of the archives.
 
-See the :ref:`API reference <libs_compute_api>` of the module for more
+See the :ref:`API reference <libs_serialization_api>` of the module for more
 details.
